@@ -6,6 +6,6 @@ edition = "2021"
 rust-version = "1.67"
 
 [dependencies]
-binder = { path = "../binder_rs" }
+binder = { path = "../binder" }
 tokio = { version = "1.25.0", features = ["full"] }
 tokio-runtime = "0.0.0"
