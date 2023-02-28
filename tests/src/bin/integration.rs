@@ -32,13 +32,13 @@ use std::sync::Mutex;
 /// Name of service runner.
 ///
 /// Must match the binary name in Android.bp
-const RUST_SERVICE_BINARY: &str = "rustBinderTestService";
+const RUST_SERVICE_BINARY: &str = "inteegration";
 
 /// Binary to run a test service.
 ///
 /// This needs to be in a separate process from the tests, so we spawn this
 /// binary as a child, providing the service name as an argument.
-pub fn run() -> Result<(), &'static str> {
+pub fn main() -> Result<(), &'static str> {
     // Ensure that we can handle all transactions on the main thread.
     binder::ProcessState::set_thread_pool_max_thread_count(0);
     binder::ProcessState::start_thread_pool();
@@ -398,6 +398,7 @@ mod tests {
             if let Some(ext) = extension {
                 command.arg(ext);
             }
+            println!("Starting service: {:?}", command);
             let child = command.spawn().expect("Could not start service");
             Self(child)
         }
@@ -541,7 +542,7 @@ mod tests {
         //     assert!(!out_ptr.is_null());
         //     CStr::from_ptr(out_ptr).to_str().expect("context was invalid UTF-8")
         // }
-        "unimplemented"
+        "u:r:su:s0"
     }
 
     #[test]
