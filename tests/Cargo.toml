@@ -3,15 +3,7 @@ name = "binder-tests"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-members = [
-    "common"
-]
-
 [dependencies]
-anyhow = "1.0.69"
 binder = { path = "../binder" }
 binder_tokio = { path = "../binder_tokio" }
-clap = { version = "4.1.7", features = ["derive"] }
-common = { path = "common/"}
 tokio = { version = "1.25.0", features = ["full"] }

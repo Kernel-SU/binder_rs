@@ -9,4 +9,4 @@ rust-version = "1.67"
 downcast-rs = "1.2.0"
 libc = "0.2.139"
 
-binder_ndk_sys = { path = "../sys" }
+binder_ndk_sys = { path = "../binder_ndk_sys" }
