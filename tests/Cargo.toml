@@ -1,9 +1,15 @@
 [package]
-name = "tests"
+name = "binder-tests"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = [
+    "common"
+]
 
 [dependencies]
+anyhow = "1.0.69"
 binder = { path = "../binder" }
+clap = { version = "4.1.7", features = ["derive"] }
+common = { path = "common/"}

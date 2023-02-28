@@ -1,0 +1,9 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.64"
+binder = { path = "../../binder" }
+lazy_static = "1.4.0"
