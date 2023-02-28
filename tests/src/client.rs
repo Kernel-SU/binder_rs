@@ -1,9 +1,9 @@
-use binder::binder_impl::Proxy;
+use binder::binder_impl::{Proxy, IBinderInternal};
 use common::IRemoteService::{BpRemoteService, IRemoteService};
 
 pub fn run() -> anyhow::Result<()> {
     let my_service_binder = binder::get_service("myservice").expect("Failed to get service");
-    println!("Get my_service_binder = {:?}", my_service_binder);
+    println!("my_service_binder alive = {}", my_service_binder.is_binder_alive());
     match BpRemoteService::from_binder(my_service_binder) {
         Ok(my_service) => {
             println!("Do getPid()");
