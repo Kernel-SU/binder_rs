@@ -5,6 +5,11 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 
+#[cfg(target_os = "windows")]
+const BUILD_EXT: &str = ".cmd";
+#[cfg(not(target_os = "windows"))]
+const BUILD_EXT: &str = "";
+
 fn build_stub(){
     let symbols = std::fs::read_to_string("src/symbols.txt").unwrap();
     let mut f = std::fs::File::create("src/libbinder_ndk/jni/stub.c").unwrap();
@@ -16,7 +21,7 @@ fn build_stub(){
     f.flush().unwrap();
 
     let ndk_path = env::var("ANDROID_NDK_HOME").expect("Please set ANDROID_NDK_HOME");
-    let ndk_build_path = format!("{}/ndk-build", ndk_path);
+    let ndk_build_path = format!("{}/ndk-build{}", ndk_path, BUILD_EXT);
 
     std::process::Command::new(ndk_build_path)
         .current_dir("src/libbinder_ndk")
