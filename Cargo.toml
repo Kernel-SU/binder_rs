@@ -3,6 +3,7 @@ members = [
     "binder",
     "binder_tokio",
     "binder_ndk_sys",
+    "binder_ndk_sys/libbinder_ndk",
     "example",
     "tests",
 ]
