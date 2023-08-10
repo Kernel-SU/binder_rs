@@ -1,11 +1,15 @@
 [package]
 name = "binder_tokio"
-authors = ["Android"]
-version = "1.0.0"
-edition = "2021"
-rust-version = "1.67"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-binder = { path = "../binder" }
+binder = { package = "binder_ndk", path = "../binder", version = "0" }
 tokio = { version = "1.25.0", features = ["full"] }
 tokio-runtime = "0.0.0"

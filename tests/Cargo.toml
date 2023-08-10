@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-binder = { path = "../binder" }
+binder = { package = "binder_ndk", path = "../binder" }
 binder_tokio = { path = "../binder_tokio" }
 tokio = { version = "1.25.0", features = ["full"] }

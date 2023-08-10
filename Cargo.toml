@@ -3,7 +3,16 @@ members = [
     "binder",
     "binder_tokio",
     "binder_ndk_sys",
-    "binder_ndk_sys/libbinder_ndk",
     "example",
     "tests",
 ]
+
+[workspace.package]
+edition = "2021"
+version = "0.2.0"
+authors = ["Android"]
+rust-version = "1.67"
+repository = "https://github.com/Kernel-SU/binder_rs"
+readme = "./README.md"
+description = "Rust bindings for Android's Binder IPC mechanism"
+license = "Apache-2.0"

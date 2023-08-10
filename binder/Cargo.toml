@@ -1,12 +1,16 @@
 [package]
-name = "binder"
-authors = ["Android"]
-version = "1.0.0"
-edition = "2021"
-rust-version = "1.67"
+name = "binder_ndk"
+
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 downcast-rs = "1.2.0"
 libc = "0.2.139"
 
-binder_ndk_sys = { path = "../binder_ndk_sys" }
+binder_ndk_sys = { path = "../binder_ndk_sys", version = "0" }
