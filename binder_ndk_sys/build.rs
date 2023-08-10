@@ -5,40 +5,17 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 
-#[cfg(target_os = "windows")]
-const BUILD_EXT: &str = ".cmd";
-#[cfg(not(target_os = "windows"))]
-const BUILD_EXT: &str = "";
-
-fn build_stub(){
+fn build_stub() {
     let symbols = std::fs::read_to_string("src/symbols.txt").unwrap();
-    let mut f = std::fs::File::create("src/libbinder_ndk/jni/stub.c").unwrap();
-    for symbol in symbols.split("\n"){
-        if symbol != ""{
-            f.write(format!("void {}(){{ return; }}\n", symbol).as_bytes()).unwrap();
+    let mut f = std::fs::File::create("libbinder_ndk/src/lib.rs").unwrap();
+    for symbol in symbols.split("\n") {
+        if !symbol.is_empty() {
+            f.write_all(format!("#[no_mangle]\npub extern fn {}() {{}}\n", symbol).as_bytes())
+                .unwrap();
         }
     }
     f.flush().unwrap();
 
-    let ndk_path = env::var("ANDROID_NDK_HOME").expect("Please set ANDROID_NDK_HOME");
-    let ndk_build_path = format!("{}/ndk-build{}", ndk_path, BUILD_EXT);
-
-    std::process::Command::new(ndk_build_path)
-        .current_dir("src/libbinder_ndk")
-        .output()
-        .unwrap();
-    
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let target_arch = match target_arch.as_str() {
-        "x86" => "x86",
-        "x86_64" => "x86_64",
-        "aarch64" => "arm64-v8a",
-        "arm" => "armeabi-v7a",
-        _ => panic!("Unsupported target architecture"),
-    };
-    let mut path = std::env::current_dir().unwrap();
-    path = path.join("src/libbinder_ndk/libs").join(target_arch);
-    println!("cargo:rustc-link-search={}", path.to_str().unwrap());
     println!("cargo:rustc-link-lib=binder_ndk");
 }
 

@@ -57,11 +57,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "binder_ndk"
+version = "1.0.0"
+
+[[package]]
 name = "binder_ndk_sys"
 version = "1.0.0"
 dependencies = [
  "bindgen",
- "cc",
 ]
 
 [[package]]

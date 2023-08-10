@@ -1,7 +1,7 @@
+use anyhow::Result;
 use clap::Parser;
-use anyhow::{Result, Ok};
 
-use crate::{server, client};
+use crate::{client, server};
 
 #[derive(Parser, Debug)]
 #[command(author, about, long_about = None)]
