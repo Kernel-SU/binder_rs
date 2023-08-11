@@ -26,21 +26,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
-name = "binder"
-version = "1.0.0"
-dependencies = [
- "binder_ndk_sys",
- "downcast-rs",
- "libc",
-]
-
-[[package]]
 name = "binder-example"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "binder",
+ "binder_ndk",
  "binder_tokio",
  "clap",
  "lazy_static",
@@ -51,27 +42,33 @@ dependencies = [
 name = "binder-tests"
 version = "0.1.0"
 dependencies = [
- "binder",
+ "binder_ndk",
  "binder_tokio",
  "tokio",
 ]
 
 [[package]]
 name = "binder_ndk"
-version = "1.0.0"
+version = "0.2.0"
+dependencies = [
+ "binder_ndk_sys",
+ "downcast-rs",
+ "libc",
+]
 
 [[package]]
 name = "binder_ndk_sys"
-version = "1.0.0"
+version = "0.2.0"
 dependencies = [
+ "anyhow",
  "bindgen",
 ]
 
 [[package]]
 name = "binder_tokio"
-version = "1.0.0"
+version = "0.2.0"
 dependencies = [
- "binder",
+ "binder_ndk",
  "tokio",
  "tokio-runtime",
 ]
