@@ -81,3 +81,73 @@ We use ndk-build to build the stub so, `ANDROID_NDK_HOME` must be set in your en
     ```
 
     This is because your android version is too low, the source is from android-mainline. You can try in avd, with Android U
+
+## Using AIDLs with UnstructuredParcelable
+
+### Generate Rust code from AIDL from the AOSP
+
+1. Create AIDL + any `UnstructuredParcelable` you want to use
+   in your AIDL interface
+   * Reference `unstructured_parcelable_example/aosp_module_to_generate_aidl`
+
+Note the structure:
+* `my_simple_parcelable_service/`
+  * `Android.bp`: Soong build file
+  * `aidl/`
+    * `Android.bp`: Soong build file
+    * `com/example/mysimpleparcelableservice`
+      * `IMySimpleParcelableService.aidl`: The service interface, note
+        we are including `MySimpleParcelable` as a return parameter
+      * `MySimpleParcelable.aidl`: Essentially a bit of a "wrapper"
+        which points to the actual definition of the
+        UnstructuredParcelable in the `rust` folder, see below
+      * `rust/`
+        * `my_simple_parcelable.rs`: Note that we have to impl
+          the `UnstructuredParcelable` trait.
+  * `src/`
+    * `lib.rs`: Implementation of the service. We only need to impl
+        it because Soong will not let us make the AIDL directly. Note
+        that this is not actually used at all.
+
+2. Use Soong to build. You need to put the above folder under
+   `<aosp-root>/external/rust/<your-aidl-lib-folder>`
+
+```bash
+m libmysimpleparcelableservice
+```
+
+Expected output
+```
+============================================
+PLATFORM_VERSION_CODENAME=VanillaIceCream
+PLATFORM_VERSION=VanillaIceCream
+PRODUCT_INCLUDE_TAGS=com.android.mainline mainline_module_prebuilt_nightly
+TARGET_PRODUCT=aosp_x86_64
+TARGET_BUILD_VARIANT=eng
+TARGET_ARCH=x86_64
+TARGET_ARCH_VARIANT=x86_64
+TARGET_2ND_ARCH=x86
+TARGET_2ND_ARCH_VARIANT=x86_64
+HOST_OS=linux
+HOST_OS_EXTRA=Linux-5.15.0-79-generic-x86_64-Ubuntu-20.04.6-LTS
+HOST_CROSS_OS=windows
+BUILD_ID=MAIN
+OUT_DIR=out
+============================================
+[ 22% 8/36 1m15s remaining] AIDL Rust external/rust/my_simple_parcelable_service/aidl/com/example/mysimp
+Compiling IDL...
+GenerateRust: out/soong/.intermediates/external/rust/my_simple_parcelable_service/aidl/com.example.mysim
+pleparcelableservice-rust-source/gen/com/example/mysimpleparcelableservice/IMySimpleParcelableService.rs
+[100% 36/36 1m14s remaining] Install: out/target/product/generic_x86_64/system/lib64/libmysimpleparcelab
+
+#### build completed successfully (02:19 (mm:ss)) ####
+```
+
+3. Navigate to Soong intermediate build folder and scoop up 
+   generated Rust code.
+   * In this case it was located at:
+     * `<aosp-root>/out/soong/.intermediates/external/rust/my_simple_parcelable_service/aidl/com.example.mysimpleparcelableservice-rust-source/gen/com/example/mysimpleparcelableservice/IMySimpleParcelableService.rs`
+
+4. Assemble the pieces in your Rust project
+   * Copy in your generated Rust source for the interface from step 3
+   * Copy in the Rust source of your `UnstructuredParcelable`s from step 1
