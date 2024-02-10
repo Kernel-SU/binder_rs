@@ -2,12 +2,57 @@
 
 The stub `libbinder_ndk.so` in ndk's sysroot hides some apis, so that we cannot link our `libbiner_rs` to it. However, we can rebuild a stub so to make linker happy. The stub source is generated from symbols.txt, whose contents are extracted from prebuilt `libbinder_ndk.so` from aosp-mainline.
 
+The libbinder_ndk.so is introduced in api-29, you need to compile it with specified target api level. 
+The compilation won't fail if api is lower than 29, because we build the dynamic library ourselves.
 
-The libbinder_ndk.so is introduced in api-29, you need to compile it with specified target api level. The compilation won't failed if api is lower than 29, because we build the dynamic library on ourselves.
+## Adding Android targets via rustup
 
+For each Android target you wish to build for you must e.g.
 
-We use ndk-build to build the stub so, `ANDROID_NDK_HOME` must be set in your env !
+```bash
+rustup target add \
+    aarch64-linux-android \
+    armv7-linux-androideabi \
+    x86_64-linux-android \
+    i686-linux-android
+```
 
+## Building using the `cargo-ndk` tooling
+
+`cargo-ndk` simplifies the process of building libraries and binaries
+for Android targets.
+
+1. Install Android Studio
+
+2. Install the NDK from within Android Studio
+
+3. Install `cargo-ndk` with:
+
+```bash
+cargo install cargo-ndk
+```
+
+We use `cargo ndk` to build the stub so, `ANDROID_NDK_HOME` must be set in your env !
+
+## Building your own `libbinder_ndk.so` from the AOSP
+
+If you follow the steps below in `Generate Rust code from AIDL from the AOSP`
+you will get a `libbinder_ndk.so` build 'for free' for your target architecture.
+
+Copy that `libbinder_ndk.so` from where it's built in the aosp root to where
+it should belong in the path to your NDK install.
+
+In my case I copied it from:
+```
+<aosp-root>/out/target/product/generic_x86_64/system/lib64/libbinder_ndk.so
+```
+to
+```
+~/Android/Sdk/ndk/<version-of-ndk>/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/29/libbinder_ndk.so
+```
+since I was going to compile with platform API level 29 and for x86_64.
+
+## Side note on where the sources are from
 
 > `sys/src/include_*` from [platform/frameworks/native/libs/binder/ndk](https://android.googlesource.com/platform/frameworks/native/+/refs/heads/master/libs/binder/ndk/)
 
@@ -111,6 +156,15 @@ Note the structure:
 
 2. Use Soong to build. You need to put the above folder under
    `<aosp-root>/external/rust/<your-aidl-lib-folder>`
+   * As per normal when building out of the AOSP, you'll need to
+     choose your target architecture, so do the following steps first
+     from the aosp root:
+     * `source build/envsetup.sh`
+     * `lunch <your-target-choice>`
+       * Recall you can type `lunch` by itself to get a listing
+         of available targets
+
+You may then proceed with building:
 
 ```bash
 m libmysimpleparcelableservice
@@ -151,3 +205,11 @@ pleparcelableservice-rust-source/gen/com/example/mysimpleparcelableservice/IMySi
 4. Assemble the pieces in your Rust project
    * Copy in your generated Rust source for the interface from step 3
    * Copy in the Rust source of your `UnstructuredParcelable`s from step 1
+
+5. Build
+
+```bash
+cargo ndk -t x86_64 --platform=29 --bindgen build
+```
+
+6. Remaining steps to copy / run example same as above
