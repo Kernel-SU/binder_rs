@@ -32,8 +32,8 @@ use std::convert::TryInto;
 use std::ffi::{c_void, CStr, CString};
 use std::fmt;
 use std::mem;
+use std::os::fd::AsRawFd;
 use std::os::raw::c_char;
-use std::os::unix::io::AsRawFd;
 use std::ptr;
 use std::sync::Arc;
 
@@ -49,14 +49,12 @@ impl fmt::Debug for SpIBinder {
     }
 }
 
-/// # Safety
-///
-/// An `SpIBinder` is an immutable handle to a C++ IBinder, which is thread-safe
+/// Safety: An `SpIBinder` is an immutable handle to a C++ IBinder, which is
+/// thread-safe.
 unsafe impl Send for SpIBinder {}
 
-/// # Safety
-///
-/// An `SpIBinder` is an immutable handle to a C++ IBinder, which is thread-safe
+/// Safety: An `SpIBinder` is an immutable handle to a C++ IBinder, which is
+/// thread-safe.
 unsafe impl Sync for SpIBinder {}
 
 impl SpIBinder {
@@ -97,11 +95,9 @@ impl SpIBinder {
     /// Return true if this binder object is hosted in a different process than
     /// the current one.
     pub fn is_remote(&self) -> bool {
-        unsafe {
-            // Safety: `SpIBinder` guarantees that it always contains a valid
-            // `AIBinder` pointer.
-            sys::AIBinder_isRemote(self.as_native())
-        }
+        // Safety: `SpIBinder` guarantees that it always contains a valid
+        // `AIBinder` pointer.
+        unsafe { sys::AIBinder_isRemote(self.as_native()) }
     }
 
     /// Try to convert this Binder object into a trait object for the given
@@ -116,12 +112,12 @@ impl SpIBinder {
     /// Return the interface class of this binder object, if associated with
     /// one.
     pub fn get_class(&mut self) -> Option<InterfaceClass> {
+        // Safety: `SpIBinder` guarantees that it always contains a valid
+        // `AIBinder` pointer. `AIBinder_getClass` returns either a null
+        // pointer or a valid pointer to an `AIBinder_Class`. After mapping
+        // null to None, we can safely construct an `InterfaceClass` if the
+        // pointer was non-null.
         unsafe {
-            // Safety: `SpIBinder` guarantees that it always contains a valid
-            // `AIBinder` pointer. `AIBinder_getClass` returns either a null
-            // pointer or a valid pointer to an `AIBinder_Class`. After mapping
-            // null to None, we can safely construct an `InterfaceClass` if the
-            // pointer was non-null.
             let class = sys::AIBinder_getClass(self.as_native_mut());
             class.as_ref().map(|p| InterfaceClass::from_ptr(p))
         }
@@ -152,7 +148,8 @@ pub mod unstable_api {
     ///
     /// See `SpIBinder::from_raw`.
     pub unsafe fn new_spibinder(ptr: *mut sys::AIBinder) -> Option<SpIBinder> {
-        SpIBinder::from_raw(ptr)
+        // Safety: The caller makes the same guarantees as this requires.
+        unsafe { SpIBinder::from_raw(ptr) }
     }
 }
 
@@ -171,30 +168,24 @@ pub trait AssociateClass {
 
 impl AssociateClass for SpIBinder {
     fn associate_class(&mut self, class: InterfaceClass) -> bool {
-        unsafe {
-            // Safety: `SpIBinder` guarantees that it always contains a valid
-            // `AIBinder` pointer. An `InterfaceClass` can always be converted
-            // into a valid `AIBinder_Class` pointer, so these parameters are
-            // always safe.
-            sys::AIBinder_associateClass(self.as_native_mut(), class.into())
-        }
+        // Safety: `SpIBinder` guarantees that it always contains a valid
+        // `AIBinder` pointer. An `InterfaceClass` can always be converted
+        // into a valid `AIBinder_Class` pointer, so these parameters are
+        // always safe.
+        unsafe { sys::AIBinder_associateClass(self.as_native_mut(), class.into()) }
     }
 }
 
 impl Ord for SpIBinder {
     fn cmp(&self, other: &Self) -> Ordering {
-        let less_than = unsafe {
-            // Safety: SpIBinder always holds a valid `AIBinder` pointer, so
-            // this pointer is always safe to pass to `AIBinder_lt` (null is
-            // also safe to pass to this function, but we should never do that).
-            sys::AIBinder_lt(self.0.as_ptr(), other.0.as_ptr())
-        };
-        let greater_than = unsafe {
-            // Safety: SpIBinder always holds a valid `AIBinder` pointer, so
-            // this pointer is always safe to pass to `AIBinder_lt` (null is
-            // also safe to pass to this function, but we should never do that).
-            sys::AIBinder_lt(other.0.as_ptr(), self.0.as_ptr())
-        };
+        // Safety: SpIBinder always holds a valid `AIBinder` pointer, so this
+        // pointer is always safe to pass to `AIBinder_lt` (null is also safe to
+        // pass to this function, but we should never do that).
+        let less_than = unsafe { sys::AIBinder_lt(self.0.as_ptr(), other.0.as_ptr()) };
+        // Safety: SpIBinder always holds a valid `AIBinder` pointer, so this
+        // pointer is always safe to pass to `AIBinder_lt` (null is also safe to
+        // pass to this function, but we should never do that).
+        let greater_than = unsafe { sys::AIBinder_lt(other.0.as_ptr(), self.0.as_ptr()) };
         if !less_than && !greater_than {
             Ordering::Equal
         } else if less_than {
@@ -221,10 +212,10 @@ impl Eq for SpIBinder {}
 
 impl Clone for SpIBinder {
     fn clone(&self) -> Self {
+        // Safety: Cloning a strong reference must increment the reference
+        // count. We are guaranteed by the `SpIBinder` constructor
+        // invariants that `self.0` is always a valid `AIBinder` pointer.
         unsafe {
-            // Safety: Cloning a strong reference must increment the reference
-            // count. We are guaranteed by the `SpIBinder` constructor
-            // invariants that `self.0` is always a valid `AIBinder` pointer.
             sys::AIBinder_incStrong(self.0.as_ptr());
         }
         Self(self.0)
@@ -235,9 +226,9 @@ impl Drop for SpIBinder {
     // We hold a strong reference to the IBinder in SpIBinder and need to give up
     // this reference on drop.
     fn drop(&mut self) {
+        // Safety: SpIBinder always holds a valid `AIBinder` pointer, so we
+        // know this pointer is safe to pass to `AIBinder_decStrong` here.
         unsafe {
-            // Safety: SpIBinder always holds a valid `AIBinder` pointer, so we
-            // know this pointer is safe to pass to `AIBinder_decStrong` here.
             sys::AIBinder_decStrong(self.as_native_mut());
         }
     }
@@ -246,26 +237,24 @@ impl Drop for SpIBinder {
 impl<T: AsNative<sys::AIBinder>> IBinderInternal for T {
     fn prepare_transact(&self) -> Result<Parcel> {
         let mut input = ptr::null_mut();
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. It is safe to cast from an
+        // immutable pointer to a mutable pointer here, because
+        // `AIBinder_prepareTransaction` only calls immutable `AIBinder`
+        // methods but the parameter is unfortunately not marked as const.
+        //
+        // After the call, input will be either a valid, owned `AParcel`
+        // pointer, or null.
         let status = unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. It is safe to cast from an
-            // immutable pointer to a mutable pointer here, because
-            // `AIBinder_prepareTransaction` only calls immutable `AIBinder`
-            // methods but the parameter is unfortunately not marked as const.
-            //
-            // After the call, input will be either a valid, owned `AParcel`
-            // pointer, or null.
             sys::AIBinder_prepareTransaction(self.as_native() as *mut sys::AIBinder, &mut input)
         };
 
         status_result(status)?;
 
-        unsafe {
-            // Safety: At this point, `input` is either a valid, owned `AParcel`
-            // pointer, or null. `OwnedParcel::from_raw` safely handles both cases,
-            // taking ownership of the parcel.
-            Parcel::from_raw(input).ok_or(StatusCode::UNEXPECTED_NULL)
-        }
+        // Safety: At this point, `input` is either a valid, owned `AParcel`
+        // pointer, or null. `OwnedParcel::from_raw` safely handles both cases,
+        // taking ownership of the parcel.
+        unsafe { Parcel::from_raw(input).ok_or(StatusCode::UNEXPECTED_NULL) }
     }
 
     fn submit_transact(
@@ -275,23 +264,23 @@ impl<T: AsNative<sys::AIBinder>> IBinderInternal for T {
         flags: TransactionFlags,
     ) -> Result<Parcel> {
         let mut reply = ptr::null_mut();
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. Although `IBinder::transact` is
+        // not a const method, it is still safe to cast our immutable
+        // pointer to mutable for the call. First, `IBinder::transact` is
+        // thread-safe, so concurrency is not an issue. The only way that
+        // `transact` can affect any visible, mutable state in the current
+        // process is by calling `onTransact` for a local service. However,
+        // in order for transactions to be thread-safe, this method must
+        // dynamically lock its data before modifying it. We enforce this
+        // property in Rust by requiring `Sync` for remotable objects and
+        // only providing `on_transact` with an immutable reference to
+        // `self`.
+        //
+        // This call takes ownership of the `data` parcel pointer, and
+        // passes ownership of the `reply` out parameter to its caller. It
+        // does not affect ownership of the `binder` parameter.
         let status = unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. Although `IBinder::transact` is
-            // not a const method, it is still safe to cast our immutable
-            // pointer to mutable for the call. First, `IBinder::transact` is
-            // thread-safe, so concurrency is not an issue. The only way that
-            // `transact` can affect any visible, mutable state in the current
-            // process is by calling `onTransact` for a local service. However,
-            // in order for transactions to be thread-safe, this method must
-            // dynamically lock its data before modifying it. We enforce this
-            // property in Rust by requiring `Sync` for remotable objects and
-            // only providing `on_transact` with an immutable reference to
-            // `self`.
-            //
-            // This call takes ownership of the `data` parcel pointer, and
-            // passes ownership of the `reply` out parameter to its caller. It
-            // does not affect ownership of the `binder` parameter.
             sys::AIBinder_transact(
                 self.as_native() as *mut sys::AIBinder,
                 code,
@@ -302,45 +291,45 @@ impl<T: AsNative<sys::AIBinder>> IBinderInternal for T {
         };
         status_result(status)?;
 
-        unsafe {
-            // Safety: `reply` is either a valid `AParcel` pointer or null
-            // after the call to `AIBinder_transact` above, so we can
-            // construct a `Parcel` out of it. `AIBinder_transact` passes
-            // ownership of the `reply` parcel to Rust, so we need to
-            // construct an owned variant.
-            Parcel::from_raw(reply).ok_or(StatusCode::UNEXPECTED_NULL)
-        }
+        // Safety: `reply` is either a valid `AParcel` pointer or null
+        // after the call to `AIBinder_transact` above, so we can
+        // construct a `Parcel` out of it. `AIBinder_transact` passes
+        // ownership of the `reply` parcel to Rust, so we need to
+        // construct an owned variant.
+        unsafe { Parcel::from_raw(reply).ok_or(StatusCode::UNEXPECTED_NULL) }
     }
 
     fn is_binder_alive(&self) -> bool {
-        unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`.
-            //
-            // This call does not affect ownership of its pointer parameter.
-            sys::AIBinder_isAlive(self.as_native())
-        }
+        // Safety: `SpIBinder` guarantees that `self` always contains a valid
+        // pointer to an `AIBinder`.
+        //
+        // This call does not affect ownership of its pointer parameter.
+        unsafe { sys::AIBinder_isAlive(self.as_native()) }
     }
 
     #[cfg(not(android_vndk))]
     fn set_requesting_sid(&mut self, enable: bool) {
+        // Safety: `SpIBinder` guarantees that `self` always contains a valid
+        // pointer to an `AIBinder`.
+        //
+        // This call does not affect ownership of its pointer parameter.
         unsafe { sys::AIBinder_setRequestingSid(self.as_native_mut(), enable) };
     }
 
     fn dump<F: AsRawFd>(&mut self, fp: &F, args: &[&str]) -> Result<()> {
         let args: Vec<_> = args.iter().map(|a| CString::new(*a).unwrap()).collect();
         let mut arg_ptrs: Vec<_> = args.iter().map(|a| a.as_ptr()).collect();
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. `AsRawFd` guarantees that the
+        // file descriptor parameter is always be a valid open file. The
+        // `args` pointer parameter is a valid pointer to an array of C
+        // strings that will outlive the call since `args` lives for the
+        // whole function scope.
+        //
+        // This call does not affect ownership of its binder pointer
+        // parameter and does not take ownership of the file or args array
+        // parameters.
         let status = unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. `AsRawFd` guarantees that the
-            // file descriptor parameter is always be a valid open file. The
-            // `args` pointer parameter is a valid pointer to an array of C
-            // strings that will outlive the call since `args` lives for the
-            // whole function scope.
-            //
-            // This call does not affect ownership of its binder pointer
-            // parameter and does not take ownership of the file or args array
-            // parameters.
             sys::AIBinder_dump(
                 self.as_native_mut(),
                 fp.as_raw_fd(),
@@ -353,22 +342,18 @@ impl<T: AsNative<sys::AIBinder>> IBinderInternal for T {
 
     fn get_extension(&mut self) -> Result<Option<SpIBinder>> {
         let mut out = ptr::null_mut();
-        let status = unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. After this call, the `out`
-            // parameter will be either null, or a valid pointer to an
-            // `AIBinder`.
-            //
-            // This call passes ownership of the out pointer to its caller
-            // (assuming it is set to a non-null value).
-            sys::AIBinder_getExtension(self.as_native_mut(), &mut out)
-        };
-        let ibinder = unsafe {
-            // Safety: The call above guarantees that `out` is either null or a
-            // valid, owned pointer to an `AIBinder`, both of which are safe to
-            // pass to `SpIBinder::from_raw`.
-            SpIBinder::from_raw(out)
-        };
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. After this call, the `out`
+        // parameter will be either null, or a valid pointer to an
+        // `AIBinder`.
+        //
+        // This call passes ownership of the out pointer to its caller
+        // (assuming it is set to a non-null value).
+        let status = unsafe { sys::AIBinder_getExtension(self.as_native_mut(), &mut out) };
+        // Safety: The call above guarantees that `out` is either null or a
+        // valid, owned pointer to an `AIBinder`, both of which are safe to
+        // pass to `SpIBinder::from_raw`.
+        let ibinder = unsafe { SpIBinder::from_raw(out) };
 
         status_result(status)?;
         Ok(ibinder)
@@ -377,17 +362,17 @@ impl<T: AsNative<sys::AIBinder>> IBinderInternal for T {
 
 impl<T: AsNative<sys::AIBinder>> IBinder for T {
     fn link_to_death(&mut self, recipient: &mut DeathRecipient) -> Result<()> {
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. `recipient` can always be
+        // converted into a valid pointer to an
+        // `AIBinder_DeathRecipient`.
+        //
+        // The cookie is also the correct pointer, and by calling new_cookie,
+        // we have created a new ref-count to the cookie, which linkToDeath
+        // takes ownership of. Once the DeathRecipient is unlinked for any
+        // reason (including if this call fails), the onUnlinked callback
+        // will consume that ref-count.
         status_result(unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. `recipient` can always be
-            // converted into a valid pointer to an
-            // `AIBinder_DeathRecipient`.
-            //
-            // The cookie is also the correct pointer, and by calling new_cookie,
-            // we have created a new ref-count to the cookie, which linkToDeath
-            // takes ownership of. Once the DeathRecipient is unlinked for any
-            // reason (including if this call fails), the onUnlinked callback
-            // will consume that ref-count.
             sys::AIBinder_linkToDeath(
                 self.as_native_mut(),
                 recipient.as_native_mut(),
@@ -397,13 +382,13 @@ impl<T: AsNative<sys::AIBinder>> IBinder for T {
     }
 
     fn unlink_to_death(&mut self, recipient: &mut DeathRecipient) -> Result<()> {
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`. `recipient` can always be
+        // converted into a valid pointer to an
+        // `AIBinder_DeathRecipient`. Any value is safe to pass as the
+        // cookie, although we depend on this value being set by
+        // `get_cookie` when the death recipient callback is called.
         status_result(unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`. `recipient` can always be
-            // converted into a valid pointer to an
-            // `AIBinder_DeathRecipient`. Any value is safe to pass as the
-            // cookie, although we depend on this value being set by
-            // `get_cookie` when the death recipient callback is called.
             sys::AIBinder_unlinkToDeath(
                 self.as_native_mut(),
                 recipient.as_native_mut(),
@@ -413,13 +398,11 @@ impl<T: AsNative<sys::AIBinder>> IBinder for T {
     }
 
     fn ping_binder(&mut self) -> Result<()> {
-        let status = unsafe {
-            // Safety: `SpIBinder` guarantees that `self` always contains a
-            // valid pointer to an `AIBinder`.
-            //
-            // This call does not affect ownership of its pointer parameter.
-            sys::AIBinder_ping(self.as_native_mut())
-        };
+        // Safety: `SpIBinder` guarantees that `self` always contains a
+        // valid pointer to an `AIBinder`.
+        //
+        // This call does not affect ownership of its pointer parameter.
+        let status = unsafe { sys::AIBinder_ping(self.as_native_mut()) };
         status_result(status)
     }
 }
@@ -439,6 +422,14 @@ impl SerializeOption for SpIBinder {
 impl SerializeArray for SpIBinder {}
 
 impl Deserialize for SpIBinder {
+    type UninitType = Option<Self>;
+    fn uninit() -> Self::UninitType {
+        Self::UninitType::default()
+    }
+    fn from_init(value: Self) -> Self::UninitType {
+        Some(value)
+    }
+
     fn deserialize(parcel: &BorrowedParcel<'_>) -> Result<SpIBinder> {
         parcel.read_binder().transpose().unwrap_or(Err(StatusCode::UNEXPECTED_NULL))
     }
@@ -464,35 +455,31 @@ impl fmt::Debug for WpIBinder {
     }
 }
 
-/// # Safety
-///
-/// A `WpIBinder` is an immutable handle to a C++ IBinder, which is thread-safe.
+/// Safety: A `WpIBinder` is an immutable handle to a C++ IBinder, which is
+/// thread-safe.
 unsafe impl Send for WpIBinder {}
 
-/// # Safety
-///
-/// A `WpIBinder` is an immutable handle to a C++ IBinder, which is thread-safe.
+/// Safety: A `WpIBinder` is an immutable handle to a C++ IBinder, which is
+/// thread-safe.
 unsafe impl Sync for WpIBinder {}
 
 impl WpIBinder {
     /// Create a new weak reference from an object that can be converted into a
     /// raw `AIBinder` pointer.
     fn new<B: AsNative<sys::AIBinder>>(binder: &mut B) -> WpIBinder {
-        let ptr = unsafe {
-            // Safety: `SpIBinder` guarantees that `binder` always contains a
-            // valid pointer to an `AIBinder`.
-            sys::AIBinder_Weak_new(binder.as_native_mut())
-        };
+        // Safety: `SpIBinder` guarantees that `binder` always contains a valid
+        // pointer to an `AIBinder`.
+        let ptr = unsafe { sys::AIBinder_Weak_new(binder.as_native_mut()) };
         Self(ptr::NonNull::new(ptr).expect("Unexpected null pointer from AIBinder_Weak_new"))
     }
 
     /// Promote this weak reference to a strong reference to the binder object.
     pub fn promote(&self) -> Option<SpIBinder> {
+        // Safety: `WpIBinder` always contains a valid weak reference, so we can
+        // pass this pointer to `AIBinder_Weak_promote`. Returns either null or
+        // an AIBinder owned by the caller, both of which are valid to pass to
+        // `SpIBinder::from_raw`.
         unsafe {
-            // Safety: `WpIBinder` always contains a valid weak reference, so we
-            // can pass this pointer to `AIBinder_Weak_promote`. Returns either
-            // null or an AIBinder owned by the caller, both of which are valid
-            // to pass to `SpIBinder::from_raw`.
             let ptr = sys::AIBinder_Weak_promote(self.0.as_ptr());
             SpIBinder::from_raw(ptr)
         }
@@ -501,35 +488,27 @@ impl WpIBinder {
 
 impl Clone for WpIBinder {
     fn clone(&self) -> Self {
-        let ptr = unsafe {
-            // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer,
-            // so this pointer is always safe to pass to `AIBinder_Weak_clone`
-            // (although null is also a safe value to pass to this API).
-            //
-            // We get ownership of the returned pointer, so can construct a new
-            // WpIBinder object from it.
-            sys::AIBinder_Weak_clone(self.0.as_ptr())
-        };
+        // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer, so
+        // this pointer is always safe to pass to `AIBinder_Weak_clone`
+        // (although null is also a safe value to pass to this API).
+        //
+        // We get ownership of the returned pointer, so can construct a new
+        // WpIBinder object from it.
+        let ptr = unsafe { sys::AIBinder_Weak_clone(self.0.as_ptr()) };
         Self(ptr::NonNull::new(ptr).expect("Unexpected null pointer from AIBinder_Weak_clone"))
     }
 }
 
 impl Ord for WpIBinder {
     fn cmp(&self, other: &Self) -> Ordering {
-        let less_than = unsafe {
-            // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer,
-            // so this pointer is always safe to pass to `AIBinder_Weak_lt`
-            // (null is also safe to pass to this function, but we should never
-            // do that).
-            sys::AIBinder_Weak_lt(self.0.as_ptr(), other.0.as_ptr())
-        };
-        let greater_than = unsafe {
-            // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer,
-            // so this pointer is always safe to pass to `AIBinder_Weak_lt`
-            // (null is also safe to pass to this function, but we should never
-            // do that).
-            sys::AIBinder_Weak_lt(other.0.as_ptr(), self.0.as_ptr())
-        };
+        // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer, so
+        // this pointer is always safe to pass to `AIBinder_Weak_lt` (null is
+        // also safe to pass to this function, but we should never do that).
+        let less_than = unsafe { sys::AIBinder_Weak_lt(self.0.as_ptr(), other.0.as_ptr()) };
+        // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer, so
+        // this pointer is always safe to pass to `AIBinder_Weak_lt` (null is
+        // also safe to pass to this function, but we should never do that).
+        let greater_than = unsafe { sys::AIBinder_Weak_lt(other.0.as_ptr(), self.0.as_ptr()) };
         if !less_than && !greater_than {
             Ordering::Equal
         } else if less_than {
@@ -556,9 +535,9 @@ impl Eq for WpIBinder {}
 
 impl Drop for WpIBinder {
     fn drop(&mut self) {
+        // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer, so we
+        // know this pointer is safe to pass to `AIBinder_Weak_delete` here.
         unsafe {
-            // Safety: WpIBinder always holds a valid `AIBinder_Weak` pointer, so we
-            // know this pointer is safe to pass to `AIBinder_Weak_delete` here.
             sys::AIBinder_Weak_delete(self.0.as_ptr());
         }
     }
@@ -566,7 +545,7 @@ impl Drop for WpIBinder {
 
 /// Rust wrapper around DeathRecipient objects.
 ///
-/// The cookie in this struct represents an Arc<F> for the owned callback.
+/// The cookie in this struct represents an `Arc<F>` for the owned callback.
 /// This struct owns a ref-count of it, and so does every binder that we
 /// have been linked with.
 ///
@@ -584,17 +563,13 @@ struct DeathRecipientVtable {
     cookie_decr_refcount: unsafe extern "C" fn(*mut c_void),
 }
 
-/// # Safety
-///
-/// A `DeathRecipient` is a wrapper around `AIBinder_DeathRecipient` and a pointer
-/// to a `Fn` which is `Sync` and `Send` (the cookie field). As
+/// Safety: A `DeathRecipient` is a wrapper around `AIBinder_DeathRecipient` and
+/// a pointer to a `Fn` which is `Sync` and `Send` (the cookie field). As
 /// `AIBinder_DeathRecipient` is threadsafe, this structure is too.
 unsafe impl Send for DeathRecipient {}
 
-/// # Safety
-///
-/// A `DeathRecipient` is a wrapper around `AIBinder_DeathRecipient` and a pointer
-/// to a `Fn` which is `Sync` and `Send` (the cookie field). As
+/// Safety: A `DeathRecipient` is a wrapper around `AIBinder_DeathRecipient` and
+/// a pointer to a `Fn` which is `Sync` and `Send` (the cookie field). As
 /// `AIBinder_DeathRecipient` is threadsafe, this structure is too.
 unsafe impl Sync for DeathRecipient {}
 
@@ -606,19 +581,17 @@ impl DeathRecipient {
         F: Fn() + Send + Sync + 'static,
     {
         let callback: *const F = Arc::into_raw(Arc::new(callback));
-        let recipient = unsafe {
-            // Safety: The function pointer is a valid death recipient callback.
-            //
-            // This call returns an owned `AIBinder_DeathRecipient` pointer
-            // which must be destroyed via `AIBinder_DeathRecipient_delete` when
-            // no longer needed.
-            sys::AIBinder_DeathRecipient_new(Some(Self::binder_died::<F>))
-        };
+        // Safety: The function pointer is a valid death recipient callback.
+        //
+        // This call returns an owned `AIBinder_DeathRecipient` pointer which
+        // must be destroyed via `AIBinder_DeathRecipient_delete` when no longer
+        // needed.
+        let recipient = unsafe { sys::AIBinder_DeathRecipient_new(Some(Self::binder_died::<F>)) };
+        // Safety: The function pointer is a valid onUnlinked callback.
+        //
+        // All uses of linkToDeath in this file correctly increment the
+        // ref-count that this onUnlinked callback will decrement.
         unsafe {
-            // Safety: The function pointer is a valid onUnlinked callback.
-            //
-            // All uses of linkToDeath in this file correctly increment the
-            // ref-count that this onUnlinked callback will decrement.
             sys::AIBinder_DeathRecipient_setOnUnlinked(
                 recipient,
                 Some(Self::cookie_decr_refcount::<F>),
@@ -640,7 +613,12 @@ impl DeathRecipient {
     ///
     /// The caller must handle the returned ref-count correctly.
     unsafe fn new_cookie(&self) -> *mut c_void {
-        (self.vtable.cookie_incr_refcount)(self.cookie);
+        // Safety: `cookie_incr_refcount` points to
+        // `Self::cookie_incr_refcount`, and `self.cookie` is the cookie for an
+        // Arc<F>.
+        unsafe {
+            (self.vtable.cookie_incr_refcount)(self.cookie);
+        }
 
         // Return a raw pointer with ownership of a ref-count
         self.cookie
@@ -659,13 +637,14 @@ impl DeathRecipient {
     ///
     /// # Safety
     ///
-    /// The `cookie` parameter must be the cookie for an Arc<F> and
+    /// The `cookie` parameter must be the cookie for an `Arc<F>` and
     /// the caller must hold a ref-count to it.
     unsafe extern "C" fn binder_died<F>(cookie: *mut c_void)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let callback = (cookie as *const F).as_ref().unwrap();
+        // Safety: The caller promises that `cookie` is for an Arc<F>.
+        let callback = unsafe { (cookie as *const F).as_ref().unwrap() };
         callback();
     }
 
@@ -674,34 +653,34 @@ impl DeathRecipient {
     ///
     /// # Safety
     ///
-    /// The `cookie` parameter must be the cookie for an Arc<F> and
+    /// The `cookie` parameter must be the cookie for an `Arc<F>` and
     /// the owner must give up a ref-count to it.
     unsafe extern "C" fn cookie_decr_refcount<F>(cookie: *mut c_void)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        drop(Arc::from_raw(cookie as *const F));
+        // Safety: The caller promises that `cookie` is for an Arc<F>.
+        drop(unsafe { Arc::from_raw(cookie as *const F) });
     }
 
     /// Callback that increments the ref-count.
     ///
     /// # Safety
     ///
-    /// The `cookie` parameter must be the cookie for an Arc<F> and
+    /// The `cookie` parameter must be the cookie for an `Arc<F>` and
     /// the owner must handle the created ref-count properly.
     unsafe extern "C" fn cookie_incr_refcount<F>(cookie: *mut c_void)
     where
         F: Fn() + Send + Sync + 'static,
     {
-        let arc = mem::ManuallyDrop::new(Arc::from_raw(cookie as *const F));
+        // Safety: The caller promises that `cookie` is for an Arc<F>.
+        let arc = mem::ManuallyDrop::new(unsafe { Arc::from_raw(cookie as *const F) });
         mem::forget(Arc::clone(&arc));
     }
 }
 
-/// # Safety
-///
-/// A `DeathRecipient` is always constructed with a valid raw pointer to an
-/// `AIBinder_DeathRecipient`, so it is always type-safe to extract this
+/// Safety: A `DeathRecipient` is always constructed with a valid raw pointer to
+/// an `AIBinder_DeathRecipient`, so it is always type-safe to extract this
 /// pointer.
 unsafe impl AsNative<sys::AIBinder_DeathRecipient> for DeathRecipient {
     fn as_native(&self) -> *const sys::AIBinder_DeathRecipient {
@@ -715,18 +694,19 @@ unsafe impl AsNative<sys::AIBinder_DeathRecipient> for DeathRecipient {
 
 impl Drop for DeathRecipient {
     fn drop(&mut self) {
+        // Safety: `self.recipient` is always a valid, owned
+        // `AIBinder_DeathRecipient` pointer returned by
+        // `AIBinder_DeathRecipient_new` when `self` was created. This delete
+        // method can only be called once when `self` is dropped.
         unsafe {
-            // Safety: `self.recipient` is always a valid, owned
-            // `AIBinder_DeathRecipient` pointer returned by
-            // `AIBinder_DeathRecipient_new` when `self` was created. This
-            // delete method can only be called once when `self` is dropped.
             sys::AIBinder_DeathRecipient_delete(self.recipient);
+        }
 
-            // Safety: We own a ref-count to the cookie, and so does every
-            // linked binder. This call gives up our ref-count. The linked
-            // binders should already have given up their ref-count, or should
-            // do so shortly.
-            (self.vtable.cookie_decr_refcount)(self.cookie)
+        // Safety: We own a ref-count to the cookie, and so does every linked
+        // binder. This call gives up our ref-count. The linked binders should
+        // already have given up their ref-count, or should do so shortly.
+        unsafe {
+            (self.vtable.cookie_decr_refcount)(self.cookie);
         }
     }
 }
@@ -746,11 +726,9 @@ pub trait Proxy: Sized + Interface {
     fn from_binder(binder: SpIBinder) -> Result<Self>;
 }
 
-/// # Safety
-///
-/// This is a convenience method that wraps `AsNative` for `SpIBinder` to allow
-/// invocation of `IBinder` methods directly from `Interface` objects. It shares
-/// the same safety as the implementation for `SpIBinder`.
+/// Safety: This is a convenience method that wraps `AsNative` for `SpIBinder`
+/// to allow invocation of `IBinder` methods directly from `Interface` objects.
+/// It shares the same safety as the implementation for `SpIBinder`.
 unsafe impl<T: Proxy> AsNative<sys::AIBinder> for T {
     fn as_native(&self) -> *const sys::AIBinder {
         self.as_binder().as_native()
@@ -765,24 +743,20 @@ unsafe impl<T: Proxy> AsNative<sys::AIBinder> for T {
 /// exist.
 pub fn get_service(name: &str) -> Option<SpIBinder> {
     let name = CString::new(name).ok()?;
-    unsafe {
-        // Safety: `AServiceManager_getService` returns either a null pointer or
-        // a valid pointer to an owned `AIBinder`. Either of these values is
-        // safe to pass to `SpIBinder::from_raw`.
-        SpIBinder::from_raw(sys::AServiceManager_getService(name.as_ptr()))
-    }
+    // Safety: `AServiceManager_getService` returns either a null pointer or a
+    // valid pointer to an owned `AIBinder`. Either of these values is safe to
+    // pass to `SpIBinder::from_raw`.
+    unsafe { SpIBinder::from_raw(sys::AServiceManager_getService(name.as_ptr())) }
 }
 
 /// Retrieve an existing service, or start it if it is configured as a dynamic
 /// service and isn't yet started.
 pub fn wait_for_service(name: &str) -> Option<SpIBinder> {
     let name = CString::new(name).ok()?;
-    unsafe {
-        // Safety: `AServiceManager_waitforService` returns either a null
-        // pointer or a valid pointer to an owned `AIBinder`. Either of these
-        // values is safe to pass to `SpIBinder::from_raw`.
-        SpIBinder::from_raw(sys::AServiceManager_waitForService(name.as_ptr()))
-    }
+    // Safety: `AServiceManager_waitforService` returns either a null pointer or
+    // a valid pointer to an owned `AIBinder`. Either of these values is safe to
+    // pass to `SpIBinder::from_raw`.
+    unsafe { SpIBinder::from_raw(sys::AServiceManager_waitForService(name.as_ptr())) }
 }
 
 /// Retrieve an existing service for a particular interface, blocking for a few
@@ -801,12 +775,10 @@ pub fn wait_for_interface<T: FromIBinder + ?Sized>(name: &str) -> Result<Strong<
 pub fn is_declared(interface: &str) -> Result<bool> {
     let interface = CString::new(interface).or(Err(StatusCode::UNEXPECTED_NULL))?;
 
-    unsafe {
-        // Safety: `interface` is a valid null-terminated C-style string and is
-        // only borrowed for the lifetime of the call. The `interface` local
-        // outlives this call as it lives for the function scope.
-        Ok(sys::AServiceManager_isDeclared(interface.as_ptr()))
-    }
+    // Safety: `interface` is a valid null-terminated C-style string and is only
+    // borrowed for the lifetime of the call. The `interface` local outlives
+    // this call as it lives for the function scope.
+    unsafe { Ok(sys::AServiceManager_isDeclared(interface.as_ptr())) }
 }
 
 /// Retrieve all declared instances for a particular interface
@@ -819,11 +791,13 @@ pub fn get_declared_instances(interface: &str) -> Result<Vec<String>> {
         // CString, and outlives this callback. The null handling here is just
         // to avoid the possibility of unwinding across C code if this crate is
         // ever compiled with panic=unwind.
-        if let Some(instances) = opaque.cast::<Vec<CString>>().as_mut() {
+        if let Some(instances) = unsafe { opaque.cast::<Vec<CString>>().as_mut() } {
             // Safety: instance is a valid null-terminated C string with a
             // lifetime at least as long as this function, and we immediately
             // copy it into an owned CString.
-            instances.push(CStr::from_ptr(instance).to_owned());
+            unsafe {
+                instances.push(CStr::from_ptr(instance).to_owned());
+            }
         } else {
             eprintln!("Opaque pointer was null in get_declared_instances callback!");
         }
@@ -831,10 +805,10 @@ pub fn get_declared_instances(interface: &str) -> Result<Vec<String>> {
 
     let interface = CString::new(interface).or(Err(StatusCode::UNEXPECTED_NULL))?;
     let mut instances: Vec<CString> = vec![];
+    // Safety: `interface` and `instances` are borrowed for the length of this
+    // call and both outlive the call. `interface` is guaranteed to be a valid
+    // null-terminated C-style string.
     unsafe {
-        // Safety: `interface` and `instances` are borrowed for the length of
-        // this call and both outlive the call. `interface` is guaranteed to be
-        // a valid null-terminated C-style string.
         sys::AServiceManager_forEachDeclaredInstance(
             interface.as_ptr(),
             &mut instances as *mut _ as *mut c_void,
@@ -852,10 +826,8 @@ pub fn get_declared_instances(interface: &str) -> Result<Vec<String>> {
         })
 }
 
-/// # Safety
-///
-/// `SpIBinder` guarantees that `binder` always contains a valid pointer to an
-/// `AIBinder`, so we can trivially extract this pointer here.
+/// Safety: `SpIBinder` guarantees that `binder` always contains a valid pointer
+/// to an `AIBinder`, so we can trivially extract this pointer here.
 unsafe impl AsNative<sys::AIBinder> for SpIBinder {
     fn as_native(&self) -> *const sys::AIBinder {
         self.0.as_ptr()

@@ -22,29 +22,28 @@ use crate::binder::AsNative;
 use crate::error::{status_result, Result, StatusCode};
 use crate::sys;
 
-use std::fs::File;
-use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 
 /// Rust version of the Java class android.os.ParcelFileDescriptor
 #[derive(Debug)]
-pub struct ParcelFileDescriptor(File);
+pub struct ParcelFileDescriptor(OwnedFd);
 
 impl ParcelFileDescriptor {
     /// Create a new `ParcelFileDescriptor`
-    pub fn new(file: File) -> Self {
-        Self(file)
+    pub fn new<F: Into<OwnedFd>>(fd: F) -> Self {
+        Self(fd.into())
     }
 }
 
-impl AsRef<File> for ParcelFileDescriptor {
-    fn as_ref(&self) -> &File {
+impl AsRef<OwnedFd> for ParcelFileDescriptor {
+    fn as_ref(&self) -> &OwnedFd {
         &self.0
     }
 }
 
-impl From<ParcelFileDescriptor> for File {
-    fn from(file: ParcelFileDescriptor) -> File {
-        file.0
+impl From<ParcelFileDescriptor> for OwnedFd {
+    fn from(fd: ParcelFileDescriptor) -> OwnedFd {
+        fd.0
     }
 }
 
@@ -73,14 +72,12 @@ impl Eq for ParcelFileDescriptor {}
 impl Serialize for ParcelFileDescriptor {
     fn serialize(&self, parcel: &mut BorrowedParcel<'_>) -> Result<()> {
         let fd = self.0.as_raw_fd();
-        let status = unsafe {
-            // Safety: `Parcel` always contains a valid pointer to an
-            // `AParcel`. Likewise, `ParcelFileDescriptor` always contains a
-            // valid file, so we can borrow a valid file
-            // descriptor. `AParcel_writeParcelFileDescriptor` does NOT take
-            // ownership of the fd, so we need not duplicate it first.
-            sys::AParcel_writeParcelFileDescriptor(parcel.as_native_mut(), fd)
-        };
+        // Safety: `Parcel` always contains a valid pointer to an
+        // `AParcel`. Likewise, `ParcelFileDescriptor` always contains a
+        // valid file, so we can borrow a valid file
+        // descriptor. `AParcel_writeParcelFileDescriptor` does NOT take
+        // ownership of the fd, so we need not duplicate it first.
+        let status = unsafe { sys::AParcel_writeParcelFileDescriptor(parcel.as_native_mut(), fd) };
         status_result(status)
     }
 }
@@ -92,13 +89,12 @@ impl SerializeOption for ParcelFileDescriptor {
         if let Some(f) = this {
             f.serialize(parcel)
         } else {
-            let status = unsafe {
-                // Safety: `Parcel` always contains a valid pointer to an
-                // `AParcel`. `AParcel_writeParcelFileDescriptor` accepts the
-                // value `-1` as the file descriptor to signify serializing a
-                // null file descriptor.
-                sys::AParcel_writeParcelFileDescriptor(parcel.as_native_mut(), -1i32)
-            };
+            let status =
+            // Safety: `Parcel` always contains a valid pointer to an
+            // `AParcel`. `AParcel_writeParcelFileDescriptor` accepts the
+            // value `-1` as the file descriptor to signify serializing a
+            // null file descriptor.
+                unsafe { sys::AParcel_writeParcelFileDescriptor(parcel.as_native_mut(), -1i32) };
             status_result(status)
         }
     }
@@ -107,31 +103,37 @@ impl SerializeOption for ParcelFileDescriptor {
 impl DeserializeOption for ParcelFileDescriptor {
     fn deserialize_option(parcel: &BorrowedParcel<'_>) -> Result<Option<Self>> {
         let mut fd = -1i32;
+        // Safety: `Parcel` always contains a valid pointer to an
+        // `AParcel`. We pass a valid mutable pointer to an i32, which
+        // `AParcel_readParcelFileDescriptor` assigns the valid file
+        // descriptor into, or `-1` if deserializing a null file
+        // descriptor. The read function passes ownership of the file
+        // descriptor to its caller if it was non-null, so we must take
+        // ownership of the file and ensure that it is eventually closed.
         unsafe {
-            // Safety: `Parcel` always contains a valid pointer to an
-            // `AParcel`. We pass a valid mutable pointer to an i32, which
-            // `AParcel_readParcelFileDescriptor` assigns the valid file
-            // descriptor into, or `-1` if deserializing a null file
-            // descriptor. The read function passes ownership of the file
-            // descriptor to its caller if it was non-null, so we must take
-            // ownership of the file and ensure that it is eventually closed.
             status_result(sys::AParcel_readParcelFileDescriptor(parcel.as_native(), &mut fd))?;
         }
         if fd < 0 {
             Ok(None)
         } else {
-            let file = unsafe {
-                // Safety: At this point, we know that the file descriptor was
-                // not -1, so must be a valid, owned file descriptor which we
-                // can safely turn into a `File`.
-                File::from_raw_fd(fd)
-            };
+            // Safety: At this point, we know that the file descriptor was
+            // not -1, so must be a valid, owned file descriptor which we
+            // can safely turn into a `File`.
+            let file = unsafe { OwnedFd::from_raw_fd(fd) };
             Ok(Some(ParcelFileDescriptor::new(file)))
         }
     }
 }
 
 impl Deserialize for ParcelFileDescriptor {
+    type UninitType = Option<Self>;
+    fn uninit() -> Self::UninitType {
+        Self::UninitType::default()
+    }
+    fn from_init(value: Self) -> Self::UninitType {
+        Some(value)
+    }
+
     fn deserialize(parcel: &BorrowedParcel<'_>) -> Result<Self> {
         Deserialize::deserialize(parcel).transpose().unwrap_or(Err(StatusCode::UNEXPECTED_NULL))
     }

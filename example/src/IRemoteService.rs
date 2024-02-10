@@ -1,6 +1,8 @@
+/*
+ * This file is auto-generated.  DO NOT MODIFY.
+ * Using: aidl --lang=rust IRemoteService.aidl -o src -I .
+ */
 #![forbid(unsafe_code)]
-// NOTE: use cfg_attr(rustfmt, rustfmt_skip) instead of rustfmt::skip 
-// #![rustfmt::skip]
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
@@ -16,8 +18,8 @@ declare_binder_interface! {
 }
 pub trait IRemoteService: binder::Interface + Send {
   fn get_descriptor() -> &'static str where Self: Sized { "IRemoteService" }
-  fn getPid(&self) -> binder::Result<i32>;
-  fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()>;
+  fn r#getPid(&self) -> binder::Result<i32>;
+  fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()>;
   fn getDefaultImpl() -> IRemoteServiceDefaultRef where Self: Sized {
     DEFAULT_IMPL.lock().unwrap().clone()
   }
@@ -27,14 +29,14 @@ pub trait IRemoteService: binder::Interface + Send {
 }
 pub trait IRemoteServiceAsync<P>: binder::Interface + Send {
   fn get_descriptor() -> &'static str where Self: Sized { "IRemoteService" }
-  fn getPid<'a>(&'a self) -> binder::BoxFuture<'a, binder::Result<i32>>;
-  fn basicTypes<'a>(&'a self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &'a str) -> binder::BoxFuture<'a, binder::Result<()>>;
+  fn r#getPid<'a>(&'a self) -> binder::BoxFuture<'a, binder::Result<i32>>;
+  fn r#basicTypes<'a>(&'a self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &'a str) -> binder::BoxFuture<'a, binder::Result<()>>;
 }
 #[::async_trait::async_trait]
 pub trait IRemoteServiceAsyncServer: binder::Interface + Send {
   fn get_descriptor() -> &'static str where Self: Sized { "IRemoteService" }
-  async fn getPid(&self) -> binder::Result<i32>;
-  async fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()>;
+  async fn r#getPid(&self) -> binder::Result<i32>;
+  async fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()>;
 }
 impl BnRemoteService {
   /// Create a new async binder service.
@@ -47,20 +49,20 @@ impl BnRemoteService {
       _inner: T,
       _rt: R,
     }
-    impl<T, R> binder::Interface for Wrapper<T, R> where T: binder::Interface, R: Send + Sync {
+    impl<T, R> binder::Interface for Wrapper<T, R> where T: binder::Interface, R: Send + Sync + 'static {
       fn as_binder(&self) -> binder::SpIBinder { self._inner.as_binder() }
-      fn dump(&self, _file: &std::fs::File, _args: &[&std::ffi::CStr]) -> std::result::Result<(), binder::StatusCode> { self._inner.dump(_file, _args) }
+      fn dump(&self, _writer: &mut dyn std::io::Write, _args: &[&std::ffi::CStr]) -> std::result::Result<(), binder::StatusCode> { self._inner.dump(_writer, _args) }
     }
     impl<T, R> IRemoteService for Wrapper<T, R>
     where
       T: IRemoteServiceAsyncServer + Send + Sync + 'static,
       R: binder::binder_impl::BinderAsyncRuntime + Send + Sync + 'static,
     {
-      fn getPid(&self) -> binder::Result<i32> {
-        self._rt.block_on(self._inner.getPid())
+      fn r#getPid(&self) -> binder::Result<i32> {
+        self._rt.block_on(self._inner.r#getPid())
       }
-      fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
-        self._rt.block_on(self._inner.basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString))
+      fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
+        self._rt.block_on(self._inner.r#basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString))
       }
     }
     let wrapped = Wrapper { _inner: inner, _rt: rt };
@@ -68,22 +70,19 @@ impl BnRemoteService {
   }
 }
 pub trait IRemoteServiceDefault: Send + Sync {
-  fn getPid(&self) -> binder::Result<i32> {
+  fn r#getPid(&self) -> binder::Result<i32> {
     Err(binder::StatusCode::UNKNOWN_TRANSACTION.into())
   }
-  fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
+  fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
     Err(binder::StatusCode::UNKNOWN_TRANSACTION.into())
   }
 }
 pub mod transactions {
-  pub const getPid: binder::binder_impl::TransactionCode = binder::binder_impl::FIRST_CALL_TRANSACTION + 0;
-  pub const basicTypes: binder::binder_impl::TransactionCode = binder::binder_impl::FIRST_CALL_TRANSACTION + 1;
+  pub const r#getPid: binder::binder_impl::TransactionCode = binder::binder_impl::FIRST_CALL_TRANSACTION + 0;
+  pub const r#basicTypes: binder::binder_impl::TransactionCode = binder::binder_impl::FIRST_CALL_TRANSACTION + 1;
 }
 pub type IRemoteServiceDefaultRef = Option<std::sync::Arc<dyn IRemoteServiceDefault>>;
-use lazy_static::lazy_static;
-lazy_static! {
-  static ref DEFAULT_IMPL: std::sync::Mutex<IRemoteServiceDefaultRef> = std::sync::Mutex::new(None);
-}
+static DEFAULT_IMPL: std::sync::Mutex<IRemoteServiceDefaultRef> = std::sync::Mutex::new(None);
 impl BpRemoteService {
   fn build_parcel_getPid(&self) -> binder::Result<binder::binder_impl::Parcel> {
     let mut aidl_data = self.binder.prepare_transact()?;
@@ -92,7 +91,7 @@ impl BpRemoteService {
   fn read_response_getPid(&self, _aidl_reply: std::result::Result<binder::binder_impl::Parcel, binder::StatusCode>) -> binder::Result<i32> {
     if let Err(binder::StatusCode::UNKNOWN_TRANSACTION) = _aidl_reply {
       if let Some(_aidl_default_impl) = <Self as IRemoteService>::getDefaultImpl() {
-        return _aidl_default_impl.getPid();
+        return _aidl_default_impl.r#getPid();
       }
     }
     let _aidl_reply = _aidl_reply?;
@@ -114,7 +113,7 @@ impl BpRemoteService {
   fn read_response_basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str, _aidl_reply: std::result::Result<binder::binder_impl::Parcel, binder::StatusCode>) -> binder::Result<()> {
     if let Err(binder::StatusCode::UNKNOWN_TRANSACTION) = _aidl_reply {
       if let Some(_aidl_default_impl) = <Self as IRemoteService>::getDefaultImpl() {
-        return _aidl_default_impl.basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString);
+        return _aidl_default_impl.r#basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString);
       }
     }
     let _aidl_reply = _aidl_reply?;
@@ -124,39 +123,39 @@ impl BpRemoteService {
   }
 }
 impl IRemoteService for BpRemoteService {
-  fn getPid(&self) -> binder::Result<i32> {
+  fn r#getPid(&self) -> binder::Result<i32> {
     let _aidl_data = self.build_parcel_getPid()?;
-    let _aidl_reply = self.binder.submit_transact(transactions::getPid, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL);
+    let _aidl_reply = self.binder.submit_transact(transactions::r#getPid, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL);
     self.read_response_getPid(_aidl_reply)
   }
-  fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
+  fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> {
     let _aidl_data = self.build_parcel_basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString)?;
-    let _aidl_reply = self.binder.submit_transact(transactions::basicTypes, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL);
+    let _aidl_reply = self.binder.submit_transact(transactions::r#basicTypes, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL);
     self.read_response_basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString, _aidl_reply)
   }
 }
 impl<P: binder::BinderAsyncPool> IRemoteServiceAsync<P> for BpRemoteService {
-  fn getPid<'a>(&'a self) -> binder::BoxFuture<'a, binder::Result<i32>> {
+  fn r#getPid<'a>(&'a self) -> binder::BoxFuture<'a, binder::Result<i32>> {
     let _aidl_data = match self.build_parcel_getPid() {
       Ok(_aidl_data) => _aidl_data,
       Err(err) => return Box::pin(std::future::ready(Err(err))),
     };
     let binder = self.binder.clone();
     P::spawn(
-      move || binder.submit_transact(transactions::getPid, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL),
+      move || binder.submit_transact(transactions::r#getPid, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL),
       move |_aidl_reply| async move {
         self.read_response_getPid(_aidl_reply)
       }
     )
   }
-  fn basicTypes<'a>(&'a self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &'a str) -> binder::BoxFuture<'a, binder::Result<()>> {
+  fn r#basicTypes<'a>(&'a self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &'a str) -> binder::BoxFuture<'a, binder::Result<()>> {
     let _aidl_data = match self.build_parcel_basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString) {
       Ok(_aidl_data) => _aidl_data,
       Err(err) => return Box::pin(std::future::ready(Err(err))),
     };
     let binder = self.binder.clone();
     P::spawn(
-      move || binder.submit_transact(transactions::basicTypes, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL),
+      move || binder.submit_transact(transactions::r#basicTypes, _aidl_data, binder::binder_impl::FLAG_PRIVATE_LOCAL),
       move |_aidl_reply| async move {
         self.read_response_basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString, _aidl_reply)
       }
@@ -164,13 +163,13 @@ impl<P: binder::BinderAsyncPool> IRemoteServiceAsync<P> for BpRemoteService {
   }
 }
 impl IRemoteService for binder::binder_impl::Binder<BnRemoteService> {
-  fn getPid(&self) -> binder::Result<i32> { self.0.getPid() }
-  fn basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> { self.0.basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString) }
+  fn r#getPid(&self) -> binder::Result<i32> { self.0.r#getPid() }
+  fn r#basicTypes(&self, _arg_anInt: i32, _arg_aLong: i64, _arg_aBoolean: bool, _arg_aFloat: f32, _arg_aDouble: f64, _arg_aString: &str) -> binder::Result<()> { self.0.r#basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, _arg_aString) }
 }
 fn on_transact(_aidl_service: &dyn IRemoteService, _aidl_code: binder::binder_impl::TransactionCode, _aidl_data: &binder::binder_impl::BorrowedParcel<'_>, _aidl_reply: &mut binder::binder_impl::BorrowedParcel<'_>) -> std::result::Result<(), binder::StatusCode> {
   match _aidl_code {
-    transactions::getPid => {
-      let _aidl_return = _aidl_service.getPid();
+    transactions::r#getPid => {
+      let _aidl_return = _aidl_service.r#getPid();
       match &_aidl_return {
         Ok(_aidl_return) => {
           _aidl_reply.write(&binder::Status::from(binder::StatusCode::OK))?;
@@ -180,14 +179,14 @@ fn on_transact(_aidl_service: &dyn IRemoteService, _aidl_code: binder::binder_im
       }
       Ok(())
     }
-    transactions::basicTypes => {
+    transactions::r#basicTypes => {
       let _arg_anInt: i32 = _aidl_data.read()?;
       let _arg_aLong: i64 = _aidl_data.read()?;
       let _arg_aBoolean: bool = _aidl_data.read()?;
       let _arg_aFloat: f32 = _aidl_data.read()?;
       let _arg_aDouble: f64 = _aidl_data.read()?;
       let _arg_aString: String = _aidl_data.read()?;
-      let _aidl_return = _aidl_service.basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, &_arg_aString);
+      let _aidl_return = _aidl_service.r#basicTypes(_arg_anInt, _arg_aLong, _arg_aBoolean, _arg_aFloat, _arg_aDouble, &_arg_aString);
       match &_aidl_return {
         Ok(_aidl_return) => {
           _aidl_reply.write(&binder::Status::from(binder::StatusCode::OK))?;
@@ -200,5 +199,5 @@ fn on_transact(_aidl_service: &dyn IRemoteService, _aidl_code: binder::binder_im
   }
 }
 pub(crate) mod mangled {
- pub use super::IRemoteService as _14_IRemoteService;
+ pub use super::r#IRemoteService as _14_IRemoteService;
 }

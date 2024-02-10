@@ -34,7 +34,7 @@ mod parcelable_holder;
 pub use self::file_descriptor::ParcelFileDescriptor;
 pub use self::parcelable::{
     Deserialize, DeserializeArray, DeserializeOption, Parcelable, Serialize, SerializeArray,
-    SerializeOption, NON_NULL_PARCELABLE_FLAG, NULL_PARCELABLE_FLAG,
+    SerializeOption, UnstructuredParcelable, NON_NULL_PARCELABLE_FLAG, NULL_PARCELABLE_FLAG,
 };
 pub use self::parcelable_holder::{ParcelableHolder, ParcelableMetadata};
 
@@ -52,11 +52,12 @@ pub struct Parcel {
     ptr: NonNull<sys::AParcel>,
 }
 
-/// # Safety
+/// Safety: This type guarantees that it owns the AParcel and that all access to
+/// the AParcel happens through the Parcel, so it is ok to send across threads.
 ///
-/// This type guarantees that it owns the AParcel and that all access to
-/// the AParcel happens through the Parcel, so it is ok to send across
-/// threads.
+/// It would not be okay to implement Sync, because that would allow you to call
+/// the reading methods from several threads in parallel, which would be a data
+/// race on the cursor position inside the AParcel.
 unsafe impl Send for Parcel {}
 
 /// Container for a message (data and object references) that can be sent
@@ -73,11 +74,9 @@ pub struct BorrowedParcel<'a> {
 impl Parcel {
     /// Create a new empty `Parcel`.
     pub fn new() -> Parcel {
-        let ptr = unsafe {
-            // Safety: If `AParcel_create` succeeds, it always returns
-            // a valid pointer. If it fails, the process will crash.
-            sys::AParcel_create()
-        };
+        // Safety: If `AParcel_create` succeeds, it always returns
+        // a valid pointer. If it fails, the process will crash.
+        let ptr = unsafe { sys::AParcel_create() };
         Self { ptr: NonNull::new(ptr).expect("AParcel_create returned null pointer") }
     }
 
@@ -171,10 +170,8 @@ impl<'a> BorrowedParcel<'a> {
     }
 }
 
-/// # Safety
-///
-/// The `Parcel` constructors guarantee that a `Parcel` object will always
-/// contain a valid pointer to an `AParcel`.
+/// Safety: The `Parcel` constructors guarantee that a `Parcel` object will
+/// always contain a valid pointer to an `AParcel`.
 unsafe impl AsNative<sys::AParcel> for Parcel {
     fn as_native(&self) -> *const sys::AParcel {
         self.ptr.as_ptr()
@@ -185,10 +182,8 @@ unsafe impl AsNative<sys::AParcel> for Parcel {
     }
 }
 
-/// # Safety
-///
-/// The `BorrowedParcel` constructors guarantee that a `BorrowedParcel` object
-/// will always contain a valid pointer to an `AParcel`.
+/// Safety: The `BorrowedParcel` constructors guarantee that a `BorrowedParcel`
+/// object will always contain a valid pointer to an `AParcel`.
 unsafe impl<'a> AsNative<sys::AParcel> for BorrowedParcel<'a> {
     fn as_native(&self) -> *const sys::AParcel {
         self.ptr.as_ptr()
@@ -203,10 +198,8 @@ unsafe impl<'a> AsNative<sys::AParcel> for BorrowedParcel<'a> {
 impl<'a> BorrowedParcel<'a> {
     /// Data written to parcelable is zero'd before being deleted or reallocated.
     pub fn mark_sensitive(&mut self) {
-        unsafe {
-            // Safety: guaranteed to have a parcel object, and this method never fails
-            sys::AParcel_markSensitive(self.as_native())
-        }
+        // Safety: guaranteed to have a parcel object, and this method never fails
+        unsafe { sys::AParcel_markSensitive(self.as_native()) }
     }
 
     /// Write a type that implements [`Serialize`] to the parcel.
@@ -265,11 +258,15 @@ impl<'a> BorrowedParcel<'a> {
             f(&mut subparcel)?;
         }
         let end = self.get_data_position();
+        // Safety: start is less than the current size of the parcel data
+        // buffer, because we just got it with `get_data_position`.
         unsafe {
             self.set_data_position(start)?;
         }
         assert!(end >= start);
         self.write(&(end - start))?;
+        // Safety: end is less than the current size of the parcel data
+        // buffer, because we just got it with `get_data_position`.
         unsafe {
             self.set_data_position(end)?;
         }
@@ -278,20 +275,16 @@ impl<'a> BorrowedParcel<'a> {
 
     /// Returns the current position in the parcel data.
     pub fn get_data_position(&self) -> i32 {
-        unsafe {
-            // Safety: `BorrowedParcel` always contains a valid pointer to an
-            // `AParcel`, and this call is otherwise safe.
-            sys::AParcel_getDataPosition(self.as_native())
-        }
+        // Safety: `BorrowedParcel` always contains a valid pointer to an
+        // `AParcel`, and this call is otherwise safe.
+        unsafe { sys::AParcel_getDataPosition(self.as_native()) }
     }
 
     /// Returns the total size of the parcel.
     pub fn get_data_size(&self) -> i32 {
-        unsafe {
-            // Safety: `BorrowedParcel` always contains a valid pointer to an
-            // `AParcel`, and this call is otherwise safe.
-            sys::AParcel_getDataSize(self.as_native())
-        }
+        // Safety: `BorrowedParcel` always contains a valid pointer to an
+        // `AParcel`, and this call is otherwise safe.
+        unsafe { sys::AParcel_getDataSize(self.as_native()) }
     }
 
     /// Move the current read/write position in the parcel.
@@ -304,7 +297,9 @@ impl<'a> BorrowedParcel<'a> {
     /// accesses are bounds checked, this call is still safe, but we can't rely
     /// on that.
     pub unsafe fn set_data_position(&self, pos: i32) -> Result<()> {
-        status_result(sys::AParcel_setDataPosition(self.as_native(), pos))
+        // Safety: `BorrowedParcel` always contains a valid pointer to an
+        // `AParcel`, and the caller guarantees that `pos` is within bounds.
+        status_result(unsafe { sys::AParcel_setDataPosition(self.as_native(), pos) })
     }
 
     /// Append a subset of another parcel.
@@ -317,10 +312,10 @@ impl<'a> BorrowedParcel<'a> {
         start: i32,
         size: i32,
     ) -> Result<()> {
+        // Safety: `Parcel::appendFrom` from C++ checks that `start`
+        // and `size` are in bounds, and returns an error otherwise.
+        // Both `self` and `other` always contain valid pointers.
         let status = unsafe {
-            // Safety: `Parcel::appendFrom` from C++ checks that `start`
-            // and `size` are in bounds, and returns an error otherwise.
-            // Both `self` and `other` always contain valid pointers.
             sys::AParcel_appendFrom(other.as_native(), self.as_native_mut(), start, size)
         };
         status_result(status)
@@ -418,7 +413,9 @@ impl Parcel {
     /// accesses are bounds checked, this call is still safe, but we can't rely
     /// on that.
     pub unsafe fn set_data_position(&self, pos: i32) -> Result<()> {
-        self.borrowed_ref().set_data_position(pos)
+        // Safety: We have the same safety requirements as
+        // `BorrowedParcel::set_data_position`.
+        unsafe { self.borrowed_ref().set_data_position(pos) }
     }
 
     /// Append a subset of another parcel.
@@ -461,7 +458,7 @@ impl<'a> BorrowedParcel<'a> {
     /// and call a closure with the sub-parcel as its parameter.
     /// The closure can keep reading data from the sub-parcel
     /// until it runs out of input data. The closure is responsible
-    /// for calling [`ReadableSubParcel::has_more_data`] to check for
+    /// for calling `ReadableSubParcel::has_more_data` to check for
     /// more data before every read, at least until Rust generators
     /// are stabilized.
     /// After the closure returns, skip to the end of the current
@@ -504,7 +501,10 @@ impl<'a> BorrowedParcel<'a> {
         f(subparcel)?;
 
         // Advance the data position to the actual end,
-        // in case the closure read less data than was available
+        // in case the closure read less data than was available.
+        //
+        // Safety: end must be less than the current size of the parcel, because
+        // we checked above against `get_data_size`.
         unsafe {
             self.set_data_position(end)?;
         }
@@ -595,7 +595,7 @@ impl Parcel {
     /// and call a closure with the sub-parcel as its parameter.
     /// The closure can keep reading data from the sub-parcel
     /// until it runs out of input data. The closure is responsible
-    /// for calling [`ReadableSubParcel::has_more_data`] to check for
+    /// for calling `ReadableSubParcel::has_more_data` to check for
     /// more data before every read, at least until Rust generators
     /// are stabilized.
     /// After the closure returns, skip to the end of the current
@@ -649,17 +649,17 @@ impl Parcel {
 // Internal APIs
 impl<'a> BorrowedParcel<'a> {
     pub(crate) fn write_binder(&mut self, binder: Option<&SpIBinder>) -> Result<()> {
+        // Safety: `BorrowedParcel` always contains a valid pointer to an
+        // `AParcel`. `AsNative` for `Option<SpIBinder`> will either return
+        // null or a valid pointer to an `AIBinder`, both of which are
+        // valid, safe inputs to `AParcel_writeStrongBinder`.
+        //
+        // This call does not take ownership of the binder. However, it does
+        // require a mutable pointer, which we cannot extract from an
+        // immutable reference, so we clone the binder, incrementing the
+        // refcount before the call. The refcount will be immediately
+        // decremented when this temporary is dropped.
         unsafe {
-            // Safety: `BorrowedParcel` always contains a valid pointer to an
-            // `AParcel`. `AsNative` for `Option<SpIBinder`> will either return
-            // null or a valid pointer to an `AIBinder`, both of which are
-            // valid, safe inputs to `AParcel_writeStrongBinder`.
-            //
-            // This call does not take ownership of the binder. However, it does
-            // require a mutable pointer, which we cannot extract from an
-            // immutable reference, so we clone the binder, incrementing the
-            // refcount before the call. The refcount will be immediately
-            // decremented when this temporary is dropped.
             status_result(sys::AParcel_writeStrongBinder(
                 self.as_native_mut(),
                 binder.cloned().as_native_mut(),
@@ -669,33 +669,28 @@ impl<'a> BorrowedParcel<'a> {
 
     pub(crate) fn read_binder(&self) -> Result<Option<SpIBinder>> {
         let mut binder = ptr::null_mut();
-        let status = unsafe {
-            // Safety: `BorrowedParcel` always contains a valid pointer to an
-            // `AParcel`. We pass a valid, mutable out pointer to the `binder`
-            // parameter. After this call, `binder` will be either null or a
-            // valid pointer to an `AIBinder` owned by the caller.
-            sys::AParcel_readStrongBinder(self.as_native(), &mut binder)
-        };
+        // Safety: `BorrowedParcel` always contains a valid pointer to an
+        // `AParcel`. We pass a valid, mutable out pointer to the `binder`
+        // parameter. After this call, `binder` will be either null or a
+        // valid pointer to an `AIBinder` owned by the caller.
+        let status = unsafe { sys::AParcel_readStrongBinder(self.as_native(), &mut binder) };
 
         status_result(status)?;
 
-        Ok(unsafe {
-            // Safety: `binder` is either null or a valid, owned pointer at this
-            // point, so can be safely passed to `SpIBinder::from_raw`.
-            SpIBinder::from_raw(binder)
-        })
+        // Safety: `binder` is either null or a valid, owned pointer at this
+        // point, so can be safely passed to `SpIBinder::from_raw`.
+        Ok(unsafe { SpIBinder::from_raw(binder) })
     }
 }
 
 impl Drop for Parcel {
     fn drop(&mut self) {
         // Run the C++ Parcel complete object destructor
-        unsafe {
-            // Safety: `Parcel` always contains a valid pointer to an
-            // `AParcel`. Since we own the parcel, we can safely delete it
-            // here.
-            sys::AParcel_delete(self.ptr.as_ptr())
-        }
+        //
+        // Safety: `Parcel` always contains a valid pointer to an
+        // `AParcel`. Since we own the parcel, we can safely delete it
+        // here.
+        unsafe { sys::AParcel_delete(self.ptr.as_ptr()) }
     }
 }
 
@@ -732,6 +727,8 @@ fn test_read_write() {
 
     parcel.write(&1i32).unwrap();
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         parcel.set_data_position(start).unwrap();
     }
@@ -748,6 +745,8 @@ fn test_read_data() {
 
     parcel.write(&b"Hello, Binder!\0"[..]).unwrap();
     // Skip over string length
+    // SAFETY: str_start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(str_start).is_ok());
     }
@@ -756,42 +755,56 @@ fn test_read_data() {
 
     assert!(parcel.read::<bool>().unwrap());
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<i8>().unwrap(), 72i8);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<u16>().unwrap(), 25928);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<i32>().unwrap(), 1819043144);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<u32>().unwrap(), 1819043144);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<i64>().unwrap(), 4764857262830019912);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert_eq!(parcel.read::<u64>().unwrap(), 4764857262830019912);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
@@ -799,6 +812,8 @@ fn test_read_data() {
     assert_eq!(parcel.read::<f32>().unwrap(), 1143139100000000000000000000.0);
     assert_eq!(parcel.read::<f32>().unwrap(), 40.043392);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
@@ -806,6 +821,8 @@ fn test_read_data() {
     assert_eq!(parcel.read::<f64>().unwrap(), 34732488246.197815);
 
     // Skip back to before the string length
+    // SAFETY: str_start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(str_start).is_ok());
     }
@@ -819,15 +836,21 @@ fn test_utf8_utf16_conversions() {
     let start = parcel.get_data_position();
 
     assert!(parcel.write("Hello, Binder!").is_ok());
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
     assert_eq!(parcel.read::<Option<String>>().unwrap().unwrap(), "Hello, Binder!",);
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
 
     assert!(parcel.write("Embedded null \0 inside a string").is_ok());
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
@@ -835,6 +858,8 @@ fn test_utf8_utf16_conversions() {
         parcel.read::<Option<String>>().unwrap().unwrap(),
         "Embedded null \0 inside a string",
     );
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
@@ -849,6 +874,8 @@ fn test_utf8_utf16_conversions() {
     let s3 = "Some more text here.";
 
     assert!(parcel.write(&[s1, s2, s3][..]).is_ok());
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         assert!(parcel.set_data_position(start).is_ok());
     }
@@ -874,6 +901,8 @@ fn test_sized_write() {
 
     assert_eq!(parcel.get_data_position(), start + expected_len);
 
+    // SAFETY: start is less than the current size of the parcel data buffer, because we haven't
+    // made it any shorter since we got the position.
     unsafe {
         parcel.set_data_position(start).unwrap();
     }
@@ -893,6 +922,8 @@ fn test_append_from() {
     assert_eq!(4, parcel2.get_data_size());
     assert_eq!(Ok(()), parcel2.append_all_from(&parcel1));
     assert_eq!(8, parcel2.get_data_size());
+    // SAFETY: 0 is less than the current size of the parcel data buffer, because the parcel is not
+    // empty.
     unsafe {
         parcel2.set_data_position(0).unwrap();
     }
@@ -903,6 +934,8 @@ fn test_append_from() {
     assert_eq!(Ok(()), parcel2.append_from(&parcel1, 0, 2));
     assert_eq!(Ok(()), parcel2.append_from(&parcel1, 2, 2));
     assert_eq!(4, parcel2.get_data_size());
+    // SAFETY: 0 is less than the current size of the parcel data buffer, because the parcel is not
+    // empty.
     unsafe {
         parcel2.set_data_position(0).unwrap();
     }
@@ -911,6 +944,8 @@ fn test_append_from() {
     let mut parcel2 = Parcel::new();
     assert_eq!(Ok(()), parcel2.append_from(&parcel1, 0, 2));
     assert_eq!(2, parcel2.get_data_size());
+    // SAFETY: 0 is less than the current size of the parcel data buffer, because the parcel is not
+    // empty.
     unsafe {
         parcel2.set_data_position(0).unwrap();
     }

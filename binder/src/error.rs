@@ -20,6 +20,7 @@ use crate::sys;
 use std::error;
 use std::ffi::{CStr, CString};
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
+use std::ptr;
 use std::result;
 
 pub use sys::binder_status_t as status_t;
@@ -92,7 +93,7 @@ fn parse_exception_code(code: i32) -> ExceptionCode {
 /// track of and chain binder errors along with service specific errors.
 ///
 /// Used in AIDL transactions to represent failed transactions.
-pub struct Status(*mut sys::AStatus);
+pub struct Status(ptr::NonNull<sys::AStatus>);
 
 // Safety: The `AStatus` that the `Status` points to must have an entirely thread-safe API for the
 // duration of the `Status` object's lifetime. We ensure this by not allowing mutation of a `Status`
@@ -111,43 +112,37 @@ fn to_cstring<T: AsRef<str>>(message: T) -> Option<CString> {
 impl Status {
     /// Create a status object representing a successful transaction.
     pub fn ok() -> Self {
-        let ptr = unsafe {
-            // Safety: `AStatus_newOk` always returns a new, heap allocated
-            // pointer to an `ASTatus` object, so we know this pointer will be
-            // valid.
-            //
-            // Rust takes ownership of the returned pointer.
-            sys::AStatus_newOk()
-        };
-        Self(ptr)
+        // Safety: `AStatus_newOk` always returns a new, heap allocated
+        // pointer to an `ASTatus` object, so we know this pointer will be
+        // valid.
+        //
+        // Rust takes ownership of the returned pointer.
+        let ptr = unsafe { sys::AStatus_newOk() };
+        Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
     }
 
     /// Create a status object from a service specific error
     pub fn new_service_specific_error(err: i32, message: Option<&CStr>) -> Status {
         let ptr = if let Some(message) = message {
-            unsafe {
-                // Safety: Any i32 is a valid service specific error for the
-                // error code parameter. We construct a valid, null-terminated
-                // `CString` from the message, which must be a valid C-style
-                // string to pass as the message. This function always returns a
-                // new, heap allocated pointer to an `AStatus` object, so we
-                // know the returned pointer will be valid.
-                //
-                // Rust takes ownership of the returned pointer.
-                sys::AStatus_fromServiceSpecificErrorWithMessage(err, message.as_ptr())
-            }
+            // Safety: Any i32 is a valid service specific error for the
+            // error code parameter. We construct a valid, null-terminated
+            // `CString` from the message, which must be a valid C-style
+            // string to pass as the message. This function always returns a
+            // new, heap allocated pointer to an `AStatus` object, so we
+            // know the returned pointer will be valid.
+            //
+            // Rust takes ownership of the returned pointer.
+            unsafe { sys::AStatus_fromServiceSpecificErrorWithMessage(err, message.as_ptr()) }
         } else {
-            unsafe {
-                // Safety: Any i32 is a valid service specific error for the
-                // error code parameter. This function always returns a new,
-                // heap allocated pointer to an `AStatus` object, so we know the
-                // returned pointer will be valid.
-                //
-                // Rust takes ownership of the returned pointer.
-                sys::AStatus_fromServiceSpecificError(err)
-            }
+            // Safety: Any i32 is a valid service specific error for the
+            // error code parameter. This function always returns a new,
+            // heap allocated pointer to an `AStatus` object, so we know the
+            // returned pointer will be valid.
+            //
+            // Rust takes ownership of the returned pointer.
+            unsafe { sys::AStatus_fromServiceSpecificError(err) }
         };
-        Self(ptr)
+        Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
     }
 
     /// Creates a status object from a service specific error.
@@ -158,10 +153,12 @@ impl Status {
     /// Create a status object from an exception code
     pub fn new_exception(exception: ExceptionCode, message: Option<&CStr>) -> Status {
         if let Some(message) = message {
+            // Safety: the C string pointer is valid and not retained by the
+            // function.
             let ptr = unsafe {
                 sys::AStatus_fromExceptionCodeWithMessage(exception as i32, message.as_ptr())
             };
-            Self(ptr)
+            Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
         } else {
             exception.into()
         }
@@ -181,42 +178,36 @@ impl Status {
     ///
     /// This constructor is safe iff `ptr` is a valid pointer to an `AStatus`.
     pub(crate) unsafe fn from_ptr(ptr: *mut sys::AStatus) -> Self {
-        Self(ptr)
+        Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
     }
 
     /// Returns `true` if this status represents a successful transaction.
     pub fn is_ok(&self) -> bool {
-        unsafe {
-            // Safety: `Status` always contains a valid `AStatus` pointer, so we
-            // are always passing a valid pointer to `AStatus_isOk` here.
-            sys::AStatus_isOk(self.as_native())
-        }
+        // Safety: `Status` always contains a valid `AStatus` pointer, so we
+        // are always passing a valid pointer to `AStatus_isOk` here.
+        unsafe { sys::AStatus_isOk(self.as_native()) }
     }
 
     /// Returns a description of the status.
     pub fn get_description(&self) -> String {
-        let description_ptr = unsafe {
-            // Safety: `Status` always contains a valid `AStatus` pointer, so we
-            // are always passing a valid pointer to `AStatus_getDescription`
-            // here.
-            //
-            // `AStatus_getDescription` always returns a valid pointer to a null
-            // terminated C string. Rust is responsible for freeing this pointer
-            // via `AStatus_deleteDescription`.
-            sys::AStatus_getDescription(self.as_native())
-        };
-        let description = unsafe {
-            // Safety: `AStatus_getDescription` always returns a valid C string,
-            // which can be safely converted to a `CStr`.
-            CStr::from_ptr(description_ptr)
-        };
+        // Safety: `Status` always contains a valid `AStatus` pointer, so we
+        // are always passing a valid pointer to `AStatus_getDescription`
+        // here.
+        //
+        // `AStatus_getDescription` always returns a valid pointer to a null
+        // terminated C string. Rust is responsible for freeing this pointer
+        // via `AStatus_deleteDescription`.
+        let description_ptr = unsafe { sys::AStatus_getDescription(self.as_native()) };
+        // Safety: `AStatus_getDescription` always returns a valid C string,
+        // which can be safely converted to a `CStr`.
+        let description = unsafe { CStr::from_ptr(description_ptr) };
         let description = description.to_string_lossy().to_string();
+        // Safety: `description_ptr` was returned from
+        // `AStatus_getDescription` above, and must be freed via
+        // `AStatus_deleteDescription`. We must not access the pointer after
+        // this call, so we copy it into an owned string above and return
+        // that string.
         unsafe {
-            // Safety: `description_ptr` was returned from
-            // `AStatus_getDescription` above, and must be freed via
-            // `AStatus_deleteDescription`. We must not access the pointer after
-            // this call, so we copy it into an owned string above and return
-            // that string.
             sys::AStatus_deleteDescription(description_ptr);
         }
         description
@@ -224,12 +215,10 @@ impl Status {
 
     /// Returns the exception code of the status.
     pub fn exception_code(&self) -> ExceptionCode {
-        let code = unsafe {
-            // Safety: `Status` always contains a valid `AStatus` pointer, so we
-            // are always passing a valid pointer to `AStatus_getExceptionCode`
-            // here.
-            sys::AStatus_getExceptionCode(self.as_native())
-        };
+        // Safety: `Status` always contains a valid `AStatus` pointer, so we
+        // are always passing a valid pointer to `AStatus_getExceptionCode`
+        // here.
+        let code = unsafe { sys::AStatus_getExceptionCode(self.as_native()) };
         parse_exception_code(code)
     }
 
@@ -240,11 +229,9 @@ impl Status {
     /// exception or a service specific error. To find out if this transaction
     /// as a whole is okay, use [`is_ok`](Self::is_ok) instead.
     pub fn transaction_error(&self) -> StatusCode {
-        let code = unsafe {
-            // Safety: `Status` always contains a valid `AStatus` pointer, so we
-            // are always passing a valid pointer to `AStatus_getStatus` here.
-            sys::AStatus_getStatus(self.as_native())
-        };
+        // Safety: `Status` always contains a valid `AStatus` pointer, so we
+        // are always passing a valid pointer to `AStatus_getStatus` here.
+        let code = unsafe { sys::AStatus_getStatus(self.as_native()) };
         parse_status_code(code)
     }
 
@@ -257,12 +244,10 @@ impl Status {
     /// find out if this transaction as a whole is okay, use
     /// [`is_ok`](Self::is_ok) instead.
     pub fn service_specific_error(&self) -> i32 {
-        unsafe {
-            // Safety: `Status` always contains a valid `AStatus` pointer, so we
-            // are always passing a valid pointer to
-            // `AStatus_getServiceSpecificError` here.
-            sys::AStatus_getServiceSpecificError(self.as_native())
-        }
+        // Safety: `Status` always contains a valid `AStatus` pointer, so we
+        // are always passing a valid pointer to
+        // `AStatus_getServiceSpecificError` here.
+        unsafe { sys::AStatus_getServiceSpecificError(self.as_native()) }
     }
 
     /// Calls `op` if the status was ok, otherwise returns an `Err` value of
@@ -320,25 +305,21 @@ impl From<StatusCode> for Status {
 
 impl From<status_t> for Status {
     fn from(status: status_t) -> Status {
-        let ptr = unsafe {
-            // Safety: `AStatus_fromStatus` expects any `status_t` integer, so
-            // this is a safe FFI call. Unknown values will be coerced into
-            // UNKNOWN_ERROR.
-            sys::AStatus_fromStatus(status)
-        };
-        Self(ptr)
+        // Safety: `AStatus_fromStatus` expects any `status_t` integer, so
+        // this is a safe FFI call. Unknown values will be coerced into
+        // UNKNOWN_ERROR.
+        let ptr = unsafe { sys::AStatus_fromStatus(status) };
+        Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
     }
 }
 
 impl From<ExceptionCode> for Status {
     fn from(code: ExceptionCode) -> Status {
-        let ptr = unsafe {
-            // Safety: `AStatus_fromExceptionCode` expects any
-            // `binder_exception_t` (i32) integer, so this is a safe FFI call.
-            // Unknown values will be coerced into EX_TRANSACTION_FAILED.
-            sys::AStatus_fromExceptionCode(code as i32)
-        };
-        Self(ptr)
+        // Safety: `AStatus_fromExceptionCode` expects any
+        // `binder_exception_t` (i32) integer, so this is a safe FFI call.
+        // Unknown values will be coerced into EX_TRANSACTION_FAILED.
+        let ptr = unsafe { sys::AStatus_fromExceptionCode(code as i32) };
+        Self(ptr::NonNull::new(ptr).expect("Unexpected null AStatus pointer"))
     }
 }
 
@@ -362,30 +343,118 @@ impl From<Status> for status_t {
 
 impl Drop for Status {
     fn drop(&mut self) {
+        // Safety: `Status` manages the lifetime of its inner `AStatus`
+        // pointee, so we need to delete it here. We know that the pointer
+        // will be valid here since `Status` always contains a valid pointer
+        // while it is alive.
         unsafe {
-            // Safety: `Status` manages the lifetime of its inner `AStatus`
-            // pointee, so we need to delete it here. We know that the pointer
-            // will be valid here since `Status` always contains a valid pointer
-            // while it is alive.
-            sys::AStatus_delete(self.0);
+            sys::AStatus_delete(self.0.as_mut());
         }
     }
 }
 
-/// # Safety
-///
-/// `Status` always contains a valid pointer to an `AStatus` object, so we can
-/// trivially convert it to a correctly-typed raw pointer.
+/// Safety: `Status` always contains a valid pointer to an `AStatus` object, so
+/// we can trivially convert it to a correctly-typed raw pointer.
 ///
 /// Care must be taken that the returned pointer is only dereferenced while the
 /// `Status` object is still alive.
 unsafe impl AsNative<sys::AStatus> for Status {
     fn as_native(&self) -> *const sys::AStatus {
-        self.0
+        self.0.as_ptr()
     }
 
     fn as_native_mut(&mut self) -> *mut sys::AStatus {
-        self.0
+        // Safety: The pointer will be valid here since `Status` always contains
+        // a valid and initialized pointer while it is alive.
+        unsafe { self.0.as_mut() }
+    }
+}
+
+/// A conversion from `std::result::Result<T, E>` to `binder::Result<T>`. If this type is `Ok(T)`,
+/// it's returned as is. If this type is `Err(E)`, `E` is converted into `Status` which can be
+/// either a general binder exception, or a service-specific exception.
+///
+/// # Examples
+///
+/// ```
+/// // std::io::Error is formatted as the exception's message
+/// fn file_exists(name: &str) -> binder::Result<bool> {
+///     std::fs::metadata(name)
+///         .or_service_specific_exception(NOT_FOUND)?
+/// }
+///
+/// // A custom function is used to create the exception's message
+/// fn file_exists(name: &str) -> binder::Result<bool> {
+///     std::fs::metadata(name)
+///         .or_service_specific_exception_with(NOT_FOUND,
+///             |e| format!("file {} not found: {:?}", name, e))?
+/// }
+///
+/// // anyhow::Error is formatted as the exception's message
+/// use anyhow::{Context, Result};
+/// fn file_exists(name: &str) -> binder::Result<bool> {
+///     std::fs::metadata(name)
+///         .context("file {} not found")
+///         .or_service_specific_exception(NOT_FOUND)?
+/// }
+///
+/// // General binder exceptions can be created similarly
+/// fn file_exists(name: &str) -> binder::Result<bool> {
+///     std::fs::metadata(name)
+///         .or_binder_exception(ExceptionCode::ILLEGAL_ARGUMENT)?
+/// }
+/// ```
+pub trait IntoBinderResult<T, E> {
+    /// Converts the embedded error into a general binder exception of code `exception`. The
+    /// message of the exception is set by formatting the error for debugging.
+    fn or_binder_exception(self, exception: ExceptionCode) -> result::Result<T, Status>;
+
+    /// Converts the embedded error into a general binder exception of code `exception`. The
+    /// message of the exception is set by lazily evaluating the `op` function.
+    fn or_binder_exception_with<M: AsRef<str>, O: FnOnce(E) -> M>(
+        self,
+        exception: ExceptionCode,
+        op: O,
+    ) -> result::Result<T, Status>;
+
+    /// Converts the embedded error into a service-specific binder exception. `error_code` is used
+    /// to distinguish different service-specific binder exceptions. The message of the exception
+    /// is set by formatting the error for debugging.
+    fn or_service_specific_exception(self, error_code: i32) -> result::Result<T, Status>;
+
+    /// Converts the embedded error into a service-specific binder exception. `error_code` is used
+    /// to distinguish different service-specific binder exceptions. The message of the exception
+    /// is set by lazily evaluating the `op` function.
+    fn or_service_specific_exception_with<M: AsRef<str>, O: FnOnce(E) -> M>(
+        self,
+        error_code: i32,
+        op: O,
+    ) -> result::Result<T, Status>;
+}
+
+impl<T, E: std::fmt::Debug> IntoBinderResult<T, E> for result::Result<T, E> {
+    fn or_binder_exception(self, exception: ExceptionCode) -> result::Result<T, Status> {
+        self.or_binder_exception_with(exception, |e| format!("{:?}", e))
+    }
+
+    fn or_binder_exception_with<M: AsRef<str>, O: FnOnce(E) -> M>(
+        self,
+        exception: ExceptionCode,
+        op: O,
+    ) -> result::Result<T, Status> {
+        self.map_err(|e| Status::new_exception_str(exception, Some(op(e))))
+    }
+
+    fn or_service_specific_exception(self, error_code: i32) -> result::Result<T, Status> {
+        self.or_service_specific_exception_with(error_code, |e| format!("{:?}", e))
+    }
+
+    fn or_service_specific_exception_with<M: AsRef<str>, O: FnOnce(E) -> M>(
+        self,
+        error_code: i32,
+        op: O,
+    ) -> result::Result<T, Status> {
+        self.map_err(|e| Status::new_service_specific_error_str(error_code, Some(op(e))))
     }
 }
 
@@ -424,5 +493,67 @@ mod tests {
         assert_eq!(status.exception_code(), ExceptionCode::ILLEGAL_STATE);
         assert_eq!(status.service_specific_error(), 0);
         assert_eq!(status.get_description(), "Status(-5, EX_ILLEGAL_STATE): ''".to_string());
+    }
+
+    #[test]
+    fn convert_to_service_specific_exception() {
+        let res: std::result::Result<(), Status> =
+            Err("message").or_service_specific_exception(-42);
+
+        assert!(res.is_err());
+        let status = res.unwrap_err();
+        assert_eq!(status.exception_code(), ExceptionCode::SERVICE_SPECIFIC);
+        assert_eq!(status.service_specific_error(), -42);
+        assert_eq!(
+            status.get_description(),
+            "Status(-8, EX_SERVICE_SPECIFIC): '-42: \"message\"'".to_string()
+        );
+    }
+
+    #[test]
+    fn convert_to_service_specific_exception_with() {
+        let res: std::result::Result<(), Status> = Err("message")
+            .or_service_specific_exception_with(-42, |e| format!("outer message: {:?}", e));
+
+        assert!(res.is_err());
+        let status = res.unwrap_err();
+        assert_eq!(status.exception_code(), ExceptionCode::SERVICE_SPECIFIC);
+        assert_eq!(status.service_specific_error(), -42);
+        assert_eq!(
+            status.get_description(),
+            "Status(-8, EX_SERVICE_SPECIFIC): '-42: outer message: \"message\"'".to_string()
+        );
+    }
+
+    #[test]
+    fn convert_to_binder_exception() {
+        let res: std::result::Result<(), Status> =
+            Err("message").or_binder_exception(ExceptionCode::ILLEGAL_STATE);
+
+        assert!(res.is_err());
+        let status = res.unwrap_err();
+        assert_eq!(status.exception_code(), ExceptionCode::ILLEGAL_STATE);
+        assert_eq!(status.service_specific_error(), 0);
+        assert_eq!(
+            status.get_description(),
+            "Status(-5, EX_ILLEGAL_STATE): '\"message\"'".to_string()
+        );
+    }
+
+    #[test]
+    fn convert_to_binder_exception_with() {
+        let res: std::result::Result<(), Status> = Err("message")
+            .or_binder_exception_with(ExceptionCode::ILLEGAL_STATE, |e| {
+                format!("outer message: {:?}", e)
+            });
+
+        assert!(res.is_err());
+        let status = res.unwrap_err();
+        assert_eq!(status.exception_code(), ExceptionCode::ILLEGAL_STATE);
+        assert_eq!(status.service_specific_error(), 0);
+        assert_eq!(
+            status.get_description(),
+            "Status(-5, EX_ILLEGAL_STATE): 'outer message: \"message\"'".to_string()
+        );
     }
 }

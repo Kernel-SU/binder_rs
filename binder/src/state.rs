@@ -22,30 +22,48 @@ use libc::{pid_t, uid_t};
 pub struct ProcessState;
 
 impl ProcessState {
-    /// Start the Binder IPC thread pool
+    /// Starts the Binder IPC thread pool.
+    ///
+    /// Starts 1 thread, plus allows the kernel to lazily start up to
+    /// `num_threads` additional threads as specified by
+    /// [`set_thread_pool_max_thread_count`](Self::set_thread_pool_max_thread_count).
+    ///
+    /// This should be done before creating any Binder client or server. If
+    /// neither this nor [`join_thread_pool`](Self::join_thread_pool) are
+    /// called, then some things (such as callbacks and
+    /// [`IBinder::link_to_death`](crate::IBinder::link_to_death)) will silently
+    /// not work: the callbacks will be queued but never called as there is no
+    /// thread to call them on.
     pub fn start_thread_pool() {
+        // Safety: Safe FFI
         unsafe {
-            // Safety: Safe FFI
             sys::ABinderProcess_startThreadPool();
         }
     }
 
-    /// Set the maximum number of threads that can be started in the threadpool.
+    /// Sets the maximum number of threads that can be started in the
+    /// threadpool.
     ///
-    /// By default, after startThreadPool is called, this is 15. If it is called
-    /// additional times, it will only prevent the kernel from starting new
-    /// threads and will not delete already existing threads.
+    /// By default, after [`start_thread_pool`](Self::start_thread_pool) is
+    /// called, this is 15. If it is called additional times, the thread pool
+    /// size can only be increased.
     pub fn set_thread_pool_max_thread_count(num_threads: u32) {
+        // Safety: Safe FFI
         unsafe {
-            // Safety: Safe FFI
             sys::ABinderProcess_setThreadPoolMaxThreadCount(num_threads);
         }
     }
 
-    /// Block on the Binder IPC thread pool
+    /// Blocks on the Binder IPC thread pool by adding the current thread to the
+    /// pool.
+    ///
+    /// Note that this adds the current thread in addition to those that are
+    /// created by
+    /// [`set_thread_pool_max_thread_count`](Self::set_thread_pool_max_thread_count)
+    /// and [`start_thread_pool`](Self::start_thread_pool).
     pub fn join_thread_pool() {
+        // Safety: Safe FFI
         unsafe {
-            // Safety: Safe FFI
             sys::ABinderProcess_joinThreadPool();
         }
     }
@@ -68,10 +86,8 @@ impl ThreadState {
     /// \return calling uid or the current process's UID if this thread isn't
     /// processing a transaction.
     pub fn get_calling_uid() -> uid_t {
-        unsafe {
-            // Safety: Safe FFI
-            sys::AIBinder_getCallingUid()
-        }
+        // Safety: Safe FFI
+        unsafe { sys::AIBinder_getCallingUid() }
     }
 
     /// This returns the calling PID assuming that this thread is called from a
@@ -85,18 +101,19 @@ impl ThreadState {
     /// dies and is replaced with another process with elevated permissions and
     /// the same PID.
     ///
+    /// Warning: oneway transactions do not receive PID. Even if you expect
+    /// a transaction to be synchronous, a misbehaving client could send it
+    /// as a synchronous call and result in a 0 PID here. Additionally, if
+    /// there is a race and the calling process dies, the PID may still be
+    /// 0 for a synchronous call.
+    ///
     /// Available since API level 29.
     ///
     /// \return calling pid or the current process's PID if this thread isn't
     /// processing a transaction.
-    ///
-    /// If the transaction being processed is a oneway transaction, then this
-    /// method will return 0.
     pub fn get_calling_pid() -> pid_t {
-        unsafe {
-            // Safety: Safe FFI
-            sys::AIBinder_getCallingPid()
-        }
+        // Safety: Safe FFI
+        unsafe { sys::AIBinder_getCallingPid() }
     }
 
     /// Determine whether the current thread is currently executing an incoming transaction.
@@ -104,10 +121,8 @@ impl ThreadState {
     /// \return true if the current thread is currently executing an incoming transaction, and false
     /// otherwise.
     pub fn is_handling_transaction() -> bool {
-        unsafe {
-            // Safety: Safe FFI
-            sys::AIBinder_isHandlingTransaction()
-        }
+        // Safety: Safe FFI
+        unsafe { sys::AIBinder_isHandlingTransaction() }
     }
 
     /// This function makes the client's security context available to the

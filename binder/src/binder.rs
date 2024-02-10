@@ -21,16 +21,17 @@ use crate::parcel::{BorrowedParcel, Parcel};
 use crate::proxy::{DeathRecipient, SpIBinder, WpIBinder};
 use crate::sys;
 
+use downcast_rs::{impl_downcast, DowncastSync};
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::ffi::{c_void, CStr, CString};
 use std::fmt;
-use std::fs::File;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::os::fd::AsRawFd;
 use std::os::raw::c_char;
-use std::os::unix::io::AsRawFd;
 use std::ptr;
 
 /// Binder action to perform.
@@ -51,7 +52,7 @@ pub type TransactionFlags = u32;
 /// interfaces) must implement this trait.
 ///
 /// This is equivalent `IInterface` in C++.
-pub trait Interface: Send + Sync {
+pub trait Interface: Send + Sync + DowncastSync {
     /// Convert this binder object into a generic [`SpIBinder`] reference.
     fn as_binder(&self) -> SpIBinder {
         panic!("This object was not a Binder object and cannot be converted into an SpIBinder.")
@@ -61,10 +62,12 @@ pub trait Interface: Send + Sync {
     ///
     /// This handler is a no-op by default and should be implemented for each
     /// Binder service struct that wishes to respond to dump transactions.
-    fn dump(&self, _file: &File, _args: &[&CStr]) -> Result<()> {
+    fn dump(&self, _writer: &mut dyn Write, _args: &[&CStr]) -> Result<()> {
         Ok(())
     }
 }
+
+impl_downcast!(sync Interface);
 
 /// Implemented by sync interfaces to specify what the associated async interface is.
 /// Generic to handle the fact that async interfaces are generic over a thread pool.
@@ -97,23 +100,18 @@ where
 
 /// Interface stability promise
 ///
-/// An interface can promise to be a stable vendor interface ([`Vintf`]), or
-/// makes no stability guarantees ([`Local`]). [`Local`] is
+/// An interface can promise to be a stable vendor interface ([`Stability::Vintf`]),
+/// or makes no stability guarantees ([`Stability::Local`]). [`Stability::Local`] is
 /// currently the default stability.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Stability {
     /// Default stability, visible to other modules in the same compilation
     /// context (e.g. modules on system.img)
+    #[default]
     Local,
 
     /// A Vendor Interface Object, which promises to be stable
     Vintf,
-}
-
-impl Default for Stability {
-    fn default() -> Self {
-        Stability::Local
-    }
 }
 
 impl From<Stability> for i32 {
@@ -144,11 +142,11 @@ impl TryFrom<i32> for Stability {
 /// via `Binder::new(object)`.
 ///
 /// This is a low-level interface that should normally be automatically
-/// generated from AIDL via the [`declare_binder_interface!`] macro. When using
-/// the AIDL backend, users need only implement the high-level AIDL-defined
+/// generated from AIDL via the [`crate::declare_binder_interface!`] macro.
+/// When using the AIDL backend, users need only implement the high-level AIDL-defined
 /// interface. The AIDL compiler then generates a container struct that wraps
 /// the user-defined service and implements `Remotable`.
-pub trait Remotable: Send + Sync {
+pub trait Remotable: Send + Sync + 'static {
     /// The Binder interface descriptor string.
     ///
     /// This string is a unique identifier for a Binder interface, and should be
@@ -167,7 +165,7 @@ pub trait Remotable: Send + Sync {
 
     /// Handle a request to invoke the dump transaction on this
     /// object.
-    fn on_dump(&self, file: &File, args: &[&CStr]) -> Result<()>;
+    fn on_dump(&self, file: &mut dyn Write, args: &[&CStr]) -> Result<()>;
 
     /// Retrieve the class of this remote object.
     ///
@@ -265,7 +263,14 @@ pub trait IBinder {
     /// Trying to use this function on a local binder will result in an
     /// INVALID_OPERATION code being returned and nothing happening.
     ///
-    /// This link always holds a weak reference to its recipient.
+    /// This link only holds a weak reference to its recipient. If the
+    /// `DeathRecipient` is dropped then it will be unlinked.
+    ///
+    /// Note that the notifications won't work if you don't first start at least
+    /// one Binder thread by calling
+    /// [`ProcessState::start_thread_pool`](crate::ProcessState::start_thread_pool)
+    /// or
+    /// [`ProcessState::join_thread_pool`](crate::ProcessState::join_thread_pool).
     fn link_to_death(&mut self, recipient: &mut DeathRecipient) -> Result<()>;
 
     /// Remove a previously registered death notification.
@@ -295,18 +300,17 @@ impl InterfaceClass {
     /// Note: the returned pointer will not be constant. Calling this method
     /// multiple times for the same type will result in distinct class
     /// pointers. A static getter for this value is implemented in
-    /// [`declare_binder_interface!`].
+    /// [`crate::declare_binder_interface!`].
     pub fn new<I: InterfaceClassMethods>() -> InterfaceClass {
         let descriptor = CString::new(I::get_descriptor()).unwrap();
+        // Safety: `AIBinder_Class_define` expects a valid C string, and three
+        // valid callback functions, all non-null pointers. The C string is
+        // copied and need not be valid for longer than the call, so we can drop
+        // it after the call. We can safely assign null to the onDump and
+        // handleShellCommand callbacks as long as the class pointer was
+        // non-null. Rust None for a Option<fn> is guaranteed to be a NULL
+        // pointer. Rust retains ownership of the pointer after it is defined.
         let ptr = unsafe {
-            // Safety: `AIBinder_Class_define` expects a valid C string, and
-            // three valid callback functions, all non-null pointers. The C
-            // string is copied and need not be valid for longer than the call,
-            // so we can drop it after the call. We can safely assign null to
-            // the onDump and handleShellCommand callbacks as long as the class
-            // pointer was non-null. Rust None for a Option<fn> is guaranteed to
-            // be a NULL pointer. Rust retains ownership of the pointer after it
-            // is defined.
             let class = sys::AIBinder_Class_define(
                 descriptor.as_ptr(),
                 Some(I::on_create),
@@ -336,13 +340,12 @@ impl InterfaceClass {
 
     /// Get the interface descriptor string of this class.
     pub fn get_descriptor(&self) -> String {
+        // SAFETY: The descriptor returned by AIBinder_Class_getDescriptor is
+        // always a two-byte null terminated sequence of u16s. Thus, we can
+        // continue reading from the pointer until we hit a null value, and this
+        // pointer can be a valid slice if the slice length is <= the number of
+        // u16 elements before the null terminator.
         unsafe {
-            // SAFETY: The descriptor returned by AIBinder_Class_getDescriptor
-            // is always a two-byte null terminated sequence of u16s. Thus, we
-            // can continue reading from the pointer until we hit a null value,
-            // and this pointer can be a valid slice if the slice length is <=
-            // the number of u16 elements before the null terminator.
-
             let raw_descriptor: *const c_char = sys::AIBinder_Class_getDescriptor(self.0);
             CStr::from_ptr(raw_descriptor)
                 .to_str()
@@ -436,7 +439,7 @@ impl<I: FromIBinder + ?Sized> Ord for Strong<I> {
 
 impl<I: FromIBinder + ?Sized> PartialOrd for Strong<I> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.as_binder().partial_cmp(&other.0.as_binder())
+        Some(self.cmp(other))
     }
 }
 
@@ -483,7 +486,7 @@ impl<I: FromIBinder + ?Sized> Ord for Weak<I> {
 
 impl<I: FromIBinder + ?Sized> PartialOrd for Weak<I> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.weak_binder.partial_cmp(&other.weak_binder)
+        Some(self.cmp(other))
     }
 }
 
@@ -540,17 +543,15 @@ macro_rules! binder_fn_get_class {
             static CLASS_INIT: std::sync::Once = std::sync::Once::new();
             static mut CLASS: Option<$crate::binder_impl::InterfaceClass> = None;
 
+            // Safety: This assignment is guarded by the `CLASS_INIT` `Once`
+            // variable, and therefore is thread-safe, as it can only occur
+            // once.
             CLASS_INIT.call_once(|| unsafe {
-                // Safety: This assignment is guarded by the `CLASS_INIT` `Once`
-                // variable, and therefore is thread-safe, as it can only occur
-                // once.
                 CLASS = Some($constructor);
             });
-            unsafe {
-                // Safety: The `CLASS` variable can only be mutated once, above,
-                // and is subsequently safe to read from any thread.
-                CLASS.unwrap()
-            }
+            // Safety: The `CLASS` variable can only be mutated once, above, and
+            // is subsequently safe to read from any thread.
+            unsafe { CLASS.unwrap() }
         }
     };
 }
@@ -662,6 +663,8 @@ pub unsafe trait AsNative<T> {
     fn as_native_mut(&mut self) -> *mut T;
 }
 
+// Safety: If V is a valid Android C++ type then we can either use that or a
+// null pointer.
 unsafe impl<T, V: AsNative<T>> AsNative<T> for Option<V> {
     fn as_native(&self) -> *const T {
         self.as_ref().map_or(ptr::null(), |v| v.as_native())
@@ -893,6 +896,23 @@ macro_rules! declare_binder_interface {
                 $crate::binder_impl::IBinderInternal::set_requesting_sid(&mut binder, features.set_requesting_sid);
                 $crate::Strong::new(Box::new(binder))
             }
+
+            /// Tries to downcast the interface to another type.
+            /// When receiving this object from a binder call, make sure that the object received is
+            /// a binder native object and that is of the right type for the Downcast:
+            ///
+            /// let binder = received_object.as_binder();
+            /// if !binder.is_remote() {
+            ///     let binder_native: Binder<BnFoo> = binder.try_into()?;
+            ///     let original_object = binder_native.downcast_binder::<MyFoo>();
+            ///     // Check that returned type is not None before using it
+            /// }
+            ///
+            /// Handle the error cases instead of just calling `unwrap` or `expect` to prevent a
+            /// malicious caller to mount a Denial of Service attack.
+            pub fn downcast_binder<T: $interface>(&self) -> Option<&T> {
+                self.0.as_any().downcast_ref::<T>()
+            }
         }
 
         impl $crate::binder_impl::Remotable for $native {
@@ -914,23 +934,23 @@ macro_rules! declare_binder_interface {
                 }
             }
 
-            fn on_dump(&self, file: &std::fs::File, args: &[&std::ffi::CStr]) -> std::result::Result<(), $crate::StatusCode> {
-                self.0.dump(file, args)
+            fn on_dump(&self, writer: &mut dyn std::io::Write, args: &[&std::ffi::CStr]) -> std::result::Result<(), $crate::StatusCode> {
+                self.0.dump(writer, args)
             }
 
             fn get_class() -> $crate::binder_impl::InterfaceClass {
                 static CLASS_INIT: std::sync::Once = std::sync::Once::new();
                 static mut CLASS: Option<$crate::binder_impl::InterfaceClass> = None;
 
+                // Safety: This assignment is guarded by the `CLASS_INIT` `Once`
+                // variable, and therefore is thread-safe, as it can only occur
+                // once.
                 CLASS_INIT.call_once(|| unsafe {
-                    // Safety: This assignment is guarded by the `CLASS_INIT` `Once`
-                    // variable, and therefore is thread-safe, as it can only occur
-                    // once.
                     CLASS = Some($crate::binder_impl::InterfaceClass::new::<$crate::binder_impl::Binder<$native>>());
                 });
+                // Safety: The `CLASS` variable can only be mutated once, above,
+                // and is subsequently safe to read from any thread.
                 unsafe {
-                    // Safety: The `CLASS` variable can only be mutated once, above,
-                    // and is subsequently safe to read from any thread.
                     CLASS.unwrap()
                 }
             }
@@ -1004,7 +1024,7 @@ macro_rules! declare_binder_interface {
 
         $(
         // Async interface trait implementations.
-        impl<P: $crate::BinderAsyncPool> $crate::FromIBinder for dyn $async_interface<P> {
+        impl<P: $crate::BinderAsyncPool + 'static> $crate::FromIBinder for dyn $async_interface<P> {
             fn try_from(mut ibinder: $crate::SpIBinder) -> std::result::Result<$crate::Strong<dyn $async_interface<P>>, $crate::StatusCode> {
                 use $crate::binder_impl::AssociateClass;
 
@@ -1023,44 +1043,34 @@ macro_rules! declare_binder_interface {
                 }
 
                 if ibinder.associate_class(<$native as $crate::binder_impl::Remotable>::get_class()) {
-                    let service: std::result::Result<$crate::binder_impl::Binder<$native>, $crate::StatusCode> =
-                        std::convert::TryFrom::try_from(ibinder.clone());
-                    if let Ok(service) = service {
-                        // We were able to associate with our expected class and
-                        // the service is local.
-                        todo!()
-                        //return Ok($crate::Strong::new(Box::new(service)));
-                    } else {
-                        // Service is remote
-                        return Ok($crate::Strong::new(Box::new(<$proxy as $crate::binder_impl::Proxy>::from_binder(ibinder)?)));
-                    }
+                    return Ok($crate::Strong::new(Box::new(<$proxy as $crate::binder_impl::Proxy>::from_binder(ibinder)?)));
                 }
 
                 Err($crate::StatusCode::BAD_TYPE.into())
             }
         }
 
-        impl<P: $crate::BinderAsyncPool> $crate::binder_impl::Serialize for dyn $async_interface<P> + '_ {
+        impl<P: $crate::BinderAsyncPool + 'static> $crate::binder_impl::Serialize for dyn $async_interface<P> + '_ {
             fn serialize(&self, parcel: &mut $crate::binder_impl::BorrowedParcel<'_>) -> std::result::Result<(), $crate::StatusCode> {
                 let binder = $crate::Interface::as_binder(self);
                 parcel.write(&binder)
             }
         }
 
-        impl<P: $crate::BinderAsyncPool> $crate::binder_impl::SerializeOption for dyn $async_interface<P> + '_ {
+        impl<P: $crate::BinderAsyncPool + 'static> $crate::binder_impl::SerializeOption for dyn $async_interface<P> + '_ {
             fn serialize_option(this: Option<&Self>, parcel: &mut $crate::binder_impl::BorrowedParcel<'_>) -> std::result::Result<(), $crate::StatusCode> {
                 parcel.write(&this.map($crate::Interface::as_binder))
             }
         }
 
-        impl<P: $crate::BinderAsyncPool> std::fmt::Debug for dyn $async_interface<P> + '_ {
+        impl<P: $crate::BinderAsyncPool + 'static> std::fmt::Debug for dyn $async_interface<P> + '_ {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 f.pad(stringify!($async_interface))
             }
         }
 
         /// Convert a &dyn $async_interface to Strong<dyn $async_interface>
-        impl<P: $crate::BinderAsyncPool> std::borrow::ToOwned for dyn $async_interface<P> {
+        impl<P: $crate::BinderAsyncPool + 'static> std::borrow::ToOwned for dyn $async_interface<P> {
             type Owned = $crate::Strong<dyn $async_interface<P>>;
             fn to_owned(&self) -> Self::Owned {
                 self.as_binder().into_interface()
@@ -1068,11 +1078,11 @@ macro_rules! declare_binder_interface {
             }
         }
 
-        impl<P: $crate::BinderAsyncPool> $crate::binder_impl::ToAsyncInterface<P> for dyn $interface {
+        impl<P: $crate::BinderAsyncPool + 'static> $crate::binder_impl::ToAsyncInterface<P> for dyn $interface {
             type Target = dyn $async_interface<P>;
         }
 
-        impl<P: $crate::BinderAsyncPool> $crate::binder_impl::ToSyncInterface for dyn $async_interface<P> {
+        impl<P: $crate::BinderAsyncPool + 'static> $crate::binder_impl::ToSyncInterface for dyn $async_interface<P> {
             type Target = dyn $interface;
         }
         )?
@@ -1127,6 +1137,10 @@ macro_rules! declare_binder_enum {
         }
 
         impl $crate::binder_impl::Deserialize for $enum {
+            type UninitType = Self;
+            fn uninit() -> Self::UninitType { Self::UninitType::default() }
+            fn from_init(value: Self) -> Self::UninitType { value }
+
             fn deserialize(parcel: &$crate::binder_impl::BorrowedParcel<'_>) -> std::result::Result<Self, $crate::StatusCode> {
                 parcel.read().map(Self)
             }
