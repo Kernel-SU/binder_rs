@@ -99,7 +99,8 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
-        // Tell bindgen to not pull in all the types from <jni.h>
+        // Tell bindgen to not pull in all the types from <jni.h> would be ideal, but it's not working
+        // to keep moving we manually blocklist all conflicting types
         // .blocklist_file("<jni.h>")
         .blocklist_type("va_list")
         .blocklist_type("jboolean")
@@ -159,7 +160,7 @@ fn main() {
         .blocklist_function("JNI_OnLoad")
         .blocklist_function("JNI_OnUnload")
         // Tell bindgen to use the types from the jni crate
-        .raw_line("use jni::JNIEnv;")
+        .raw_line("use jni::sys::JNIEnv;")
         .raw_line("use jni::sys::jobject;")
         // Get verbose output
         .clang_arg("-v")
