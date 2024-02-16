@@ -17,6 +17,9 @@ rust-version = "1.67"
 
 [lib]
 crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21.1"
 "#;
 
 fn build_stub() -> Result<()> {
@@ -96,6 +99,70 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        // Tell bindgen to not pull in all the types from <jni.h>
+        // .blocklist_file("<jni.h>")
+        .blocklist_type("va_list")
+        .blocklist_type("jboolean")
+        .blocklist_type("jbyte")
+        .blocklist_type("jchar")
+        .blocklist_type("jshort")
+        .blocklist_type("jint")
+        .blocklist_type("jlong")
+        .blocklist_type("jfloat")
+        .blocklist_type("jdouble")
+        .blocklist_type("jsize")
+        .blocklist_type("jobject")
+        .blocklist_type("jclass")
+        .blocklist_type("jstring")
+        .blocklist_type("jarray")
+        .blocklist_type("jobjectArray")
+        .blocklist_type("jbooleanArray")
+        .blocklist_type("jbyteArray")
+        .blocklist_type("jcharArray")
+        .blocklist_type("jshortArray")
+        .blocklist_type("jintArray")
+        .blocklist_type("jlongArray")
+        .blocklist_type("jfloatArray")
+        .blocklist_type("jdoubleArray")
+        .blocklist_type("jthrowable")
+        .blocklist_type("jweak")
+        .blocklist_type("jfieldID")
+        .blocklist_type("jmethodID")
+        .blocklist_type("JNIEnv")
+        .blocklist_type("JavaVM")
+        .blocklist_type("_jobject")
+        .blocklist_type("_jclass")
+        .blocklist_type("_jstring")
+        .blocklist_type("_jarray")
+        .blocklist_type("_jobjectArray")
+        .blocklist_type("_jbooleanArray")
+        .blocklist_type("_jbyteArray")
+        .blocklist_type("_jcharArray")
+        .blocklist_type("_jshortArray")
+        .blocklist_type("_jintArray")
+        .blocklist_type("_jlongArray")
+        .blocklist_type("_jfloatArray")
+        .blocklist_type("_jdoubleArray")
+        .blocklist_type("_jthrowable")
+        .blocklist_type("_jfieldID")
+        .blocklist_type("_jmethodID")
+        .blocklist_type("jvalue")
+        .blocklist_type("JNINativeMethod")
+        .blocklist_type("JNINativeInterface")
+        .blocklist_type("_JNIEnv")
+        .blocklist_type("JNIInvokeInterface")
+        .blocklist_type("_JavaVM")
+        .blocklist_type("jobjectRefType")
+        .blocklist_function("JNI_GetDefaultJavaVMInitArgs")
+        .blocklist_function("JNI_CreateJavaVM")
+        .blocklist_function("JNI_GetCreatedJavaVMs")
+        .blocklist_function("JNI_OnLoad")
+        .blocklist_function("JNI_OnUnload")
+        // Tell bindgen to use the types from the jni crate
+        .raw_line("use jni::JNIEnv;")
+        .raw_line("use jni::sys::jobject;")
+        // Get verbose output
+        .clang_arg("-v")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.
