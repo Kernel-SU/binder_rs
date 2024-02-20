@@ -48,6 +48,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "binder-tests"
+version = "0.1.0"
+dependencies = [
+ "binder",
+ "binder_tokio",
+ "tokio",
+]
+
+[[package]]
 name = "binder_ndk_sys"
 version = "0.2.0"
 dependencies = [

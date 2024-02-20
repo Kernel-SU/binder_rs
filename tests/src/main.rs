@@ -26,19 +26,20 @@ use binder::binder_impl::{
 
 use std::convert::{TryFrom, TryInto};
 use std::ffi::CStr;
-use std::fs::File;
+use std::io::Write;
 use std::sync::Mutex;
 
 /// Name of service runner.
 ///
 /// Must match the binary name in Android.bp
-const RUST_SERVICE_BINARY: &str = "binder_tests";
+/// FYI: There is a delta here in the stand-alone crate. We name it what we called in the Cargo.toml
+const RUST_SERVICE_BINARY: &str = "binder-tests";
 
 /// Binary to run a test service.
 ///
 /// This needs to be in a separate process from the tests, so we spawn this
 /// binary as a child, providing the service name as an argument.
-pub fn main() -> Result<(), &'static str> {
+fn main() -> Result<(), &'static str> {
     // Ensure that we can handle all transactions on the main thread.
     binder::ProcessState::set_thread_pool_max_thread_count(0);
     binder::ProcessState::start_thread_pool();
@@ -118,7 +119,7 @@ impl TryFrom<u32> for TestTransactionCode {
 }
 
 impl Interface for TestService {
-    fn dump(&self, _file: &File, args: &[&CStr]) -> Result<(), StatusCode> {
+    fn dump(&self, _writer: &mut dyn Write, args: &[&CStr]) -> Result<(), StatusCode> {
         let mut dump_args = self.dump_args.lock().unwrap();
         dump_args.extend(args.iter().map(|s| s.to_str().unwrap().to_owned()));
         Ok(())
@@ -354,6 +355,15 @@ declare_binder_enum! {
     }
 }
 
+declare_binder_enum! {
+    #[deprecated(since = "1.0.0")]
+    TestDeprecatedEnum : [i32; 3] {
+        FOO = 1,
+        BAR = 2,
+        BAZ = 3,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CStr;
@@ -536,6 +546,11 @@ mod tests {
     }
 
     fn get_expected_selinux_context() -> &'static str {
+        // SAFETY: The pointer we pass to `getcon` is valid because it comes from a reference, and
+        // `getcon` doesn't retain it after it returns. If `getcon` succeeds then `out_ptr` will
+        // point to a valid C string, otherwise it will remain null. We check for null, so the
+        // pointer we pass to `CStr::from_ptr` must be a valid pointer to a C string. There is a
+        // memory leak as we don't call `freecon`, but that's fine because this is just a test.
         // unsafe {
         //     let mut out_ptr = ptr::null_mut();
         //     assert_eq!(selinux_sys::getcon(&mut out_ptr), 0);
