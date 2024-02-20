@@ -1,0 +1,10 @@
+rust_library {
+    name: "libmysimpleparcelableservice",
+    srcs: ["src/lib.rs"],
+    crate_name: "mysimpleparcelableservice",
+    rustlibs: [
+        "libmy_simple_parcelable_rust",
+        "com.example.mysimpleparcelableservice-rust",
+        "libbinder_rs",
+    ],
+}

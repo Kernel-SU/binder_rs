@@ -1,9 +1,13 @@
 [package]
-name = "binder-tests"
+name = "unstructured-parcelable-binder-example"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0.69"
 binder = { package = "binder", path = "../binder" }
 binder_tokio = { path = "../binder_tokio" }
+clap = { version = "4.1.7", features = ["derive"] }
 tokio = { version = "1.25.0", features = ["full"] }
+async-trait = "0.1.64"
+lazy_static = "1.4.0"

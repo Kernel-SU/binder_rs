@@ -100,13 +100,14 @@ mod error;
 mod native;
 mod parcel;
 mod proxy;
+#[cfg(not(target_os = "trusty"))]
 mod state;
 
 use binder_ndk_sys as sys;
 
 pub use crate::binder_async::{BinderAsyncPool, BoxFuture};
 pub use binder::{BinderFeatures, FromIBinder, IBinder, Interface, Strong, Weak};
-pub use error::{ExceptionCode, Status, StatusCode};
+pub use error::{ExceptionCode, IntoBinderResult, Status, StatusCode};
 pub use native::{
     add_service, force_lazy_services_persist, is_handling_transaction, register_lazy_service,
     LazyServiceGuard,
@@ -116,6 +117,7 @@ pub use proxy::{
     get_declared_instances, get_interface, get_service, is_declared, wait_for_interface,
     wait_for_service, DeathRecipient, SpIBinder, WpIBinder,
 };
+#[cfg(not(target_os = "trusty"))]
 pub use state::{ProcessState, ThreadState};
 
 /// Binder result containing a [`Status`] on error.
@@ -134,8 +136,8 @@ pub mod binder_impl {
     pub use crate::native::Binder;
     pub use crate::parcel::{
         BorrowedParcel, Deserialize, DeserializeArray, DeserializeOption, Parcel,
-        ParcelableMetadata, Serialize, SerializeArray, SerializeOption, NON_NULL_PARCELABLE_FLAG,
-        NULL_PARCELABLE_FLAG,
+        ParcelableMetadata, Serialize, SerializeArray, SerializeOption, UnstructuredParcelable,
+        NON_NULL_PARCELABLE_FLAG, NULL_PARCELABLE_FLAG,
     };
     pub use crate::proxy::{AssociateClass, Proxy};
 }
@@ -144,6 +146,7 @@ pub mod binder_impl {
 #[doc(hidden)]
 pub mod unstable_api {
     pub use crate::binder::AsNative;
+    pub use crate::error::status_result;
     pub use crate::proxy::unstable_api::new_spibinder;
     pub use crate::sys::AIBinder;
     pub use crate::sys::AParcel;

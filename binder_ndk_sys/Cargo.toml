@@ -9,6 +9,9 @@ repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+jni = "0.21.1"
+
 [build-dependencies]
 bindgen = "0.64.0"
 anyhow = "1"

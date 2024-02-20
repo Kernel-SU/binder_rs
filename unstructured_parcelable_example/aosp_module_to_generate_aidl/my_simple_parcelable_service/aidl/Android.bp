@@ -1,0 +1,24 @@
+rust_library {
+    name: "libmy_simple_parcelable_rust",
+    crate_name: "my_simple_parcelable",
+    srcs: [
+        "com/example/mysimpleparcelableservice/rust/my_simple_parcelable.rs",
+    ],
+    rustlibs: [
+        "libbinder_rs",
+    ],
+}
+
+aidl_interface {
+    name: "com.example.mysimpleparcelableservice",
+    srcs: ["com/example/mysimpleparcelableservice/IMySimpleParcelableService.aidl"],
+    unstable: true,
+    backend: {
+        rust: {
+            enabled: true,
+            additional_rustlibs: [
+                "libmy_simple_parcelable_rust",
+            ],
+        },
+    },
+}

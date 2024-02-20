@@ -1,5 +1,5 @@
 [package]
-name = "binder_ndk"
+name = "binder"
 
 edition.workspace = true
 version.workspace = true

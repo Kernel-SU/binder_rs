@@ -4,6 +4,7 @@ members = [
     "binder_tokio",
     "binder_ndk_sys",
     "example",
+    "unstructured_parcelable_example",
     "tests",
 ]
 
